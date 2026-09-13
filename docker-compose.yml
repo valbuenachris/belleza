@@ -1,0 +1,158 @@
+# ============================================================
+# docker-compose.yml - Archivo principal para desarrollo local
+# Sistema de Gestión Integral para SPAs - Arquitectura Multitenant
+# ============================================================
+# Uso: docker-compose up -d
+# Para desarrollo con phpMyAdmin: docker-compose --profile development up -d
+# ============================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------
+  # Backend - FastAPI con Uvicorn/Gunicorn
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spa_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=true
+      - ENVIRONMENT=development
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      # Montar código fuente para hot-reload en desarrollo
+      - ./backend/app:/app/app
+    networks:
+      - spa_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ----------------------------------------------------------
+  # Frontend - Nginx sirviendo archivos estáticos HTML/CSS/JS
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: spa_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # MySQL 8.0 - Base de datos principal
+  # ----------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: spa_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secure_password}
+      MYSQL_DATABASE: ${DB_NAME:-spa_management}
+      MYSQL_USER: ${DB_USER:-spa_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-spa_secure_password}
+    volumes:
+      # Volumen persistente para los datos
+      - mysql_data:/var/lib/mysql
+      # Scripts de inicialización automática (se ejecutan solo la primera vez)
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=200
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_secure_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Redis 7 - Cache y sesiones
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: spa_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spa_network
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # phpMyAdmin - Solo para desarrollo (perfil 'development')
+  # ----------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: spa_phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secure_password}
+      UPLOAD_LIMIT: 64M
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - spa_network
+    profiles:
+      - development
+    restart: unless-stopped
+
+# ============================================================
+# Redes
+# ============================================================
+networks:
+  spa_network:
+    driver: bridge
+    name: spa_management_network
+
+# ============================================================
+# Volúmenes persistentes
+# ============================================================
+volumes:
+  mysql_data:
+    driver: local
+    name: spa_mysql_data
+  redis_data:
+    driver: local
+    name: spa_redis_data

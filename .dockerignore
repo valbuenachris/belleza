@@ -1,0 +1,55 @@
+# .dockerignore - Raíz del proyecto
+# Archivos y carpetas excluidos del contexto de build de Docker
+
+# Control de versiones
+.git
+.github
+
+# Editores e IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Documentación
+*.md
+LICENSE
+
+# Variables de entorno locales
+.env.local
+.env.*.local
+
+# Dependencias
+node_modules
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+
+# Build
+dist
+build
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Datos locales
+mysql_data/
+redis_data/
+db/
+*.sqlite3
