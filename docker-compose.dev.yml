@@ -1,0 +1,38 @@
+# ============================================================
+# docker-compose.dev.yml - Override para desarrollo
+# Uso: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# ============================================================
+
+version: '3.8'
+
+services:
+  backend:
+    # En desarrollo usamos uvicorn con --reload en lugar de gunicorn
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    environment:
+      - DEBUG=true
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+    volumes:
+      # Montar todo el backend para hot-reload completo
+      - ./backend/app:/app/app
+      - ./backend/alembic.ini:/app/alembic.ini
+    ports:
+      - "8000:8000"
+      # Puerto adicional para debugging
+      - "5678:5678"
+
+  frontend:
+    # Montar archivos estáticos para ver cambios en tiempo real
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+
+  mysql:
+    ports:
+      - "3306:3306"
+
+  redis:
+    ports:
+      - "6379:6379"

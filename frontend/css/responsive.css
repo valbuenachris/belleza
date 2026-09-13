@@ -1,0 +1,223 @@
+/* ============================================================
+   frontend/css/responsive.css - Media Queries
+   Diseño responsive mobile-first
+   ============================================================ */
+
+/* ============================================================
+   Mobile - hasta 768px
+   ============================================================ */
+
+@media (max-width: 768px) {
+    /* Sidebar - Oculto por defecto en mobile */
+    .sidebar {
+        transform: translateX(-100%);
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+        box-shadow: var(--shadow-xl);
+    }
+    
+    .sidebar-close {
+        display: block;
+    }
+    
+    /* Main content - Sin margen en mobile */
+    .main-content {
+        margin-left: 0;
+    }
+    
+    /* Header */
+    .main-header {
+        padding: 0 var(--space-4);
+    }
+    
+    .menu-toggle {
+        display: block;
+    }
+    
+    .search-bar {
+        display: none;
+    }
+    
+    /* Page content */
+    .page-content {
+        padding: var(--space-4);
+    }
+    
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-3);
+    }
+    
+    .page-title {
+        font-size: var(--font-size-xl);
+    }
+    
+    /* Stats grid - 2 columnas en mobile */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-3);
+    }
+    
+    .stat-card {
+        padding: var(--space-4);
+    }
+    
+    .stat-value {
+        font-size: var(--font-size-xl);
+    }
+    
+    /* Charts grid - 1 columna en mobile */
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    /* Auth page */
+    .auth-card {
+        padding: var(--space-6);
+    }
+    
+    .auth-title {
+        font-size: var(--font-size-lg);
+    }
+    
+    /* Toast */
+    .toast-container {
+        bottom: var(--space-4);
+        right: var(--space-4);
+        left: var(--space-4);
+    }
+    
+    .toast {
+        min-width: auto;
+    }
+    
+    /* Tables */
+    .table th,
+    .table td {
+        padding: var(--space-3);
+    }
+}
+
+/* ============================================================
+   Tablet - 768px a 1024px
+   ============================================================ */
+
+@media (min-width: 769px) and (max-width: 1024px) {
+    /* Sidebar - Más estrecho */
+    .sidebar {
+        width: 240px;
+    }
+    
+    .main-content {
+        margin-left: 240px;
+    }
+    
+    /* Stats grid - 2 columnas */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    /* Charts grid - 1 columna */
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    /* Page content */
+    .page-content {
+        padding: var(--space-6);
+    }
+}
+
+/* ============================================================
+   Desktop - más de 1024px
+   ============================================================ */
+
+@media (min-width: 1025px) {
+    /* Layout completo */
+    .sidebar {
+        transform: translateX(0);
+    }
+    
+    .main-content {
+        margin-left: var(--sidebar-width);
+    }
+    
+    /* Stats grid - 4 columnas */
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    /* Charts grid - 2 columnas */
+    .charts-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* ============================================================
+   Large Desktop - más de 1440px
+   ============================================================ */
+
+@media (min-width: 1441px) {
+    .page-content {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+}
+
+/* ============================================================
+   Print
+   ============================================================ */
+
+@media print {
+    .sidebar,
+    .main-header,
+    .menu-toggle,
+    .notification-btn,
+    .toast-container {
+        display: none !important;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+    
+    .stat-card,
+    .card {
+        break-inside: avoid;
+    }
+}
+
+/* ============================================================
+   Preferencias de accesibilidad
+   ============================================================ */
+
+/* Reducir movimiento para usuarios que lo prefieran */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Modo oscuro (opcional - futuro) */
+@media (prefers-color-scheme: dark) {
+    /* Se puede implementar más adelante */
+}
+
+/* Alto contraste */
+@media (prefers-contrast: high) {
+    :root {
+        --color-border: #78716c;
+        --color-text-secondary: #57534e;
+    }
+    
+    .btn {
+        border: 2px solid currentColor;
+    }
+}

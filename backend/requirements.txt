@@ -1,0 +1,37 @@
+# ============================================================
+# backend/requirements.txt - Dependencias Python
+# Sistema de Gestión SPA - Backend FastAPI
+# ============================================================
+
+# Framework Web
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Base de Datos - ORM y Driver
+sqlalchemy==2.0.25
+pymysql==1.1.0
+cryptography==41.0.7
+
+# Migraciones de Base de Datos
+alembic==1.13.1
+
+# Autenticación y Seguridad
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Validación de Datos
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Utilidades
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# HTTP Client (para testing y llamadas internas)
+httpx==0.26.0
+
+# Cache y Sesiones
+redis==5.0.1
+
+# Servidor de Producción
+gunicorn==21.2.0
