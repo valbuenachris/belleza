@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPA Management System - Dashboard</title>
+    <meta name="description" content="Sistema de gestión integral para centros de estética y relajación">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧖</text></svg>">
+</head>
+<body>
+    <div id="app" class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">✨</div>
+                    <div class="logo-text">
+                        <h1>SPA Manager</h1>
+                        <span>Sistema de Gestión</span>
+                    </div>
+                </div>
+                <button class="sidebar-close" id="sidebarClose" aria-label="Cerrar menú">✕</button>
+            </div>
+            
+            <div class="tenant-info" id="tenantInfo">
+                <p class="tenant-label">Tenant Activo</p>
+                <p class="tenant-name" id="tenantName">Serenity Spa & Wellness</p>
+                <span class="tenant-plan" id="tenantPlan">professional</span>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <span class="nav-icon">📊</span>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-page="appointments">
+                    <span class="nav-icon">📅</span>
+                    <span>Citas</span>
+                </a>
+                <a href="#" class="nav-item" data-page="patients">
+                    <span class="nav-icon">👥</span>
+                    <span>Pacientes</span>
+                </a>
+                <a href="#" class="nav-item" data-page="services">
+                    <span class="nav-icon">💆</span>
+                    <span>Servicios</span>
+                </a>
+                <a href="#" class="nav-item" data-page="users">
+                    <span class="nav-icon">🔑</span>
+                    <span>Usuarios</span>
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Configuración</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">MG</div>
+                    <div class="user-details">
+                        <p class="user-name" id="userName">María González</p>
+                        <p class="user-role" id="userRole">Administradora</p>
+                    </div>
+                </div>
+                <button class="btn-logout" id="btnLogout" title="Cerrar sesión">🚪</button>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <button class="menu-toggle" id="menuToggle" aria-label="Abrir menú">☰</button>
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" placeholder="Buscar..." aria-label="Buscar">
+                </div>
+                <div class="header-actions">
+                    <button class="notification-btn" aria-label="Notificaciones">
+                        🔔
+                        <span class="notification-badge">3</span>
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Page Content -->
+            <main class="page-content" id="pageContent">
+                <!-- Dashboard se carga dinámicamente -->
+                <div class="page-header">
+                    <div>
+                        <h1 class="page-title">¡Hola, <span id="welcomeName">María</span>! 👋</h1>
+                        <p class="page-subtitle" id="welcomeSubtitle">Panel de Serenity Spa & Wellness</p>
+                    </div>
+                    <div class="page-date" id="currentDate"></div>
+                </div>
+                
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon emerald">👥</div>
+                        <div class="stat-content">
+                            <p class="stat-label">Usuarios Activos</p>
+                            <p class="stat-value">4</p>
+                            <p class="stat-change positive">+12% vs mes anterior</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon blue">🧖</div>
+                        <div class="stat-content">
+                            <p class="stat-label">Pacientes</p>
+                            <p class="stat-value">87</p>
+                            <p class="stat-change positive">+8% vs mes anterior</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon violet">📅</div>
+                        <div class="stat-content">
+                            <p class="stat-label">Citas Hoy</p>
+                            <p class="stat-value">12</p>
+                            <p class="stat-change positive">+23% vs ayer</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon amber">💰</div>
+                        <div class="stat-content">
+                            <p class="stat-label">Ingresos del Mes</p>
+                            <p class="stat-value">$4,520</p>
+                            <p class="stat-change negative">-3% vs mes anterior</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Charts Row -->
+                <div class="charts-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Citas de la Semana</h3>
+                            <span class="badge badge-success">+15%</span>
+                        </div>
+                        <div class="chart-bars" id="weeklyChart">
+                            <!-- Se genera dinámicamente -->
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Actividad Reciente</h3>
+                        </div>
+                        <div class="activity-list">
+                            <div class="activity-item">
+                                <span class="activity-dot emerald"></span>
+                                <div class="activity-content">
+                                    <p class="activity-title">Nueva cita agendada</p>
+                                    <p class="activity-detail">Masaje relajante - 60 min</p>
+                                </div>
+                                <span class="activity-time">Hace 5 min</span>
+                            </div>
+                            <div class="activity-item">
+                                <span class="activity-dot blue"></span>
+                                <div class="activity-content">
+                                    <p class="activity-title">Paciente registrado</p>
+                                    <p class="activity-detail">Carolina Méndez</p>
+                                </div>
+                                <span class="activity-time">Hace 15 min</span>
+                            </div>
+                            <div class="activity-item">
+                                <span class="activity-dot amber"></span>
+                                <div class="activity-content">
+                                    <p class="activity-title">Pago procesado</p>
+                                    <p class="activity-detail">$120.00 - Facial premium</p>
+                                </div>
+                                <span class="activity-time">Hace 32 min</span>
+                            </div>
+                            <div class="activity-item">
+                                <span class="activity-dot violet"></span>
+                                <div class="activity-content">
+                                    <p class="activity-title">Cita completada</p>
+                                    <p class="activity-detail">Terapia de piedras calientes</p>
+                                </div>
+                                <span class="activity-time">Hace 1 hora</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <!-- Scripts -->
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

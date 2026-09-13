@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - SPA Management System</title>
+    <meta name="description" content="Accede al sistema de gestión para tu centro de estética">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧖</text></svg>">
+</head>
+<body class="auth-page">
+    <div class="auth-container">
+        <!-- Background decoration -->
+        <div class="auth-bg-decoration">
+            <div class="auth-bg-circle circle-1"></div>
+            <div class="auth-bg-circle circle-2"></div>
+        </div>
+        
+        <!-- Login Card -->
+        <div class="auth-card">
+            <!-- Logo -->
+            <div class="auth-logo">
+                <div class="auth-logo-icon">✨</div>
+                <h1 class="auth-title">SPA Management System</h1>
+                <p class="auth-subtitle">Gestión integral para centros de estética</p>
+            </div>
+            
+            <!-- Form -->
+            <div class="auth-form-container">
+                <h2 class="auth-form-title">Iniciar Sesión</h2>
+                <p class="auth-form-subtitle">Ingresa tus credenciales para acceder</p>
+                
+                <!-- Error message -->
+                <div class="alert alert-error" id="loginError" style="display: none;">
+                    <span class="alert-dot"></span>
+                    <span id="loginErrorMessage">Error</span>
+                </div>
+                
+                <form id="loginForm" novalidate>
+                    <div class="form-group">
+                        <label for="email" class="form-label">Correo electrónico</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">📧</span>
+                            <input 
+                                type="email" 
+                                id="email" 
+                                name="email" 
+                                placeholder="tu@email.com"
+                                required
+                                autocomplete="email"
+                                aria-label="Correo electrónico"
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password" class="form-label">Contraseña</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔒</span>
+                            <input 
+                                type="password" 
+                                id="password" 
+                                name="password" 
+                                placeholder="••••••••"
+                                required
+                                autocomplete="current-password"
+                                aria-label="Contraseña"
+                            >
+                            <button type="button" class="input-toggle" id="togglePassword" aria-label="Mostrar contraseña">
+                                👁️
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="remember" id="remember">
+                            <span>Recordarme</span>
+                        </label>
+                        <a href="#" class="link">¿Olvidaste tu contraseña?</a>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+                        <span class="btn-text">Iniciar Sesión</span>
+                        <span class="btn-arrow">→</span>
+                        <span class="btn-loader" style="display: none;">
+                            <span class="spinner"></span>
+                            Ingresando...
+                        </span>
+                    </button>
+                </form>
+                
+                <div class="auth-divider">
+                    <span>o</span>
+                </div>
+                
+                <p class="auth-register-link">
+                    ¿Tienes un SPA? 
+                    <a href="#" class="link link-bold" id="goToRegister">Registra tu negocio</a>
+                </p>
+            </div>
+        </div>
+        
+        <!-- Demo Credentials -->
+        <div class="demo-credentials">
+            <p class="demo-title">Credenciales de Demo</p>
+            <div class="demo-list">
+                <p><strong>Superadmin:</strong> superadmin@spa.com / Admin123!</p>
+                <p><strong>Admin Demo:</strong> admin@demo.com / Admin123!</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        // ============================================================
+        // Lógica de la página de login
+        // ============================================================
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('loginForm');
+            const loginBtn = document.getElementById('loginBtn');
+            const loginError = document.getElementById('loginError');
+            const loginErrorMessage = document.getElementById('loginErrorMessage');
+            const togglePassword = document.getElementById('togglePassword');
+            const passwordInput = document.getElementById('password');
+            
+            // Si ya está autenticado, redirigir al dashboard
+            if (Auth.isAuthenticated()) {
+                window.location.href = 'index.html';
+                return;
+            }
+            
+            // Toggle mostrar/ocultar contraseña
+            togglePassword.addEventListener('click', function() {
+                const type = passwordInput.type === 'password' ? 'text' : 'password';
+                passwordInput.type = type;
+                this.textContent = type === 'password' ? '👁️' : '🙈';
+            });
+            
+            // Submit del formulario
+            loginForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const email = document.getElementById('email').value.trim();
+                const password = document.getElementById('password').value;
+                
+                // Validación básica
+                if (!email || !password) {
+                    showError('Por favor completa todos los campos');
+                    return;
+                }
+                
+                // Mostrar loading
+                setLoading(true);
+                hideError();
+                
+                try {
+                    await Auth.login(email, password);
+                    // Login exitoso - redirigir al dashboard
+                    window.location.href = 'index.html';
+                } catch (error) {
+                    showError(error.message || 'Error al iniciar sesión. Verifica tus credenciales.');
+                    setLoading(false);
+                }
+            });
+            
+            function showError(message) {
+                loginErrorMessage.textContent = message;
+                loginError.style.display = 'flex';
+            }
+            
+            function hideError() {
+                loginError.style.display = 'none';
+            }
+            
+            function setLoading(loading) {
+                const btnText = loginBtn.querySelector('.btn-text');
+                const btnArrow = loginBtn.querySelector('.btn-arrow');
+                const btnLoader = loginBtn.querySelector('.btn-loader');
+                
+                if (loading) {
+                    btnText.style.display = 'none';
+                    btnArrow.style.display = 'none';
+                    btnLoader.style.display = 'flex';
+                    loginBtn.disabled = true;
+                } else {
+                    btnText.style.display = 'inline';
+                    btnArrow.style.display = 'inline';
+                    btnLoader.style.display = 'none';
+                    loginBtn.disabled = false;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

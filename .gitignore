@@ -1,5 +1,62 @@
+# .gitignore - SPA Management System
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Node
 node_modules/
-.next/
+npm-debug.log*
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Datos locales
+mysql_data/
+redis_data/
+db/
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Build
 dist/
 build/
-*.log
+*.egg-info/
+
+# Migraciones (si se generan localmente)
+backend/alembic/versions/*.pyc
+.next/
