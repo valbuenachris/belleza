@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, Tenant, TokenResponse } from '../types';
-import { api } from '../services/api';
+import { api, SESSION_EXPIRED_EVENT } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +14,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<TokenResponse>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  updateTenant: (tenant: Tenant) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,7 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Verificar sesión al cargar
+  // Al expirar la sesión (refresh fallido), limpiar el estado
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setUser(null);
+      setTenant(null);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  }, []);
+
+  // Verificar sesión al cargar (valida el token contra el backend)
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -33,8 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setTenant(result.tenant);
         }
       } catch {
-        // Sesión inválida, limpiar
-        localStorage.clear();
+        setUser(null);
+        setTenant(null);
       } finally {
         setIsLoading(false);
       }
@@ -50,9 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await api.logout();
-    setUser(null);
-    setTenant(null);
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+      setTenant(null);
+    }
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -61,6 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(result.user);
       setTenant(result.tenant);
     }
+  }, []);
+
+  const updateTenant = useCallback((updated: Tenant) => {
+    setTenant(updated);
+    localStorage.setItem('spa_tenant', JSON.stringify(updated));
   }, []);
 
   return (
@@ -73,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         refreshSession,
+        updateTenant,
       }}
     >
       {children}

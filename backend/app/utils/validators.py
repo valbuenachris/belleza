@@ -99,7 +99,7 @@ def validate_password_strength(password: str) -> Tuple[bool, str]:
     if not re.search(r"[0-9]", password):
         return False, "La contraseña debe contener al menos un número"
     
-    if not re.search(r"[!@#$%^&*()_+\-=\[\]{}|;:',.<>?/`~\\\"", password):
+    if not re.search(r"[!@#$%^&*()_+\-=\[\]{}|;:',.<>?/`~\"\\]", password):
         return False, "La contraseña debe contener al menos un carácter especial"
     
     return True, ""

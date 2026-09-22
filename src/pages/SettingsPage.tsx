@@ -4,15 +4,26 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { api, ApiError } from '../services/api';
 import {
   Settings as SettingsIcon, Building2, Clock, Globe,
-  Save, CheckCircle, Bell, Palette, Shield
+  Save, CheckCircle, Bell, Palette, Shield, AlertCircle
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { tenant, user } = useAuth();
+  const { tenant, updateTenant } = useAuth();
   const [activeTab, setActiveTab] = useState('general');
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [formData, setFormData] = useState({
     nombre: tenant?.nombre || '',
     email: tenant?.email || '',
@@ -22,14 +33,68 @@ export default function SettingsPage() {
     moneda: tenant?.moneda || 'USD',
     horarioApertura: tenant?.configuracion?.horario_apertura || '08:00',
     horarioCierre: tenant?.configuracion?.horario_cierre || '20:00',
-    duracionCita: tenant?.configuracion?.duracion_cita_default || 60,
+    diasOperacion: tenant?.configuracion?.dias_operacion || [1, 2, 3, 4, 5, 6],
+    duracionCita: tenant?.configuracion?.duracion_cita_default ?? 60,
     recordatorioCitas: tenant?.configuracion?.recordatorio_citas ?? true,
     confirmacionCitas: tenant?.configuracion?.confirmacion_citas ?? true,
   });
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  const handleSave = async () => {
+    if (!tenant) return;
+    setSaveError('');
+    setSaving(true);
+    try {
+      const updated = await api.updateTenant(tenant.id, {
+        nombre: formData.nombre,
+        email: formData.email || null,
+        telefono: formData.telefono || null,
+        direccion: formData.direccion || null,
+        timezone: formData.timezone,
+        moneda: formData.moneda,
+        configuracion: {
+          horario_apertura: formData.horarioApertura,
+          horario_cierre: formData.horarioCierre,
+          dias_operacion: formData.diasOperacion,
+          duracion_cita_default: formData.duracionCita,
+          recordatorio_citas: formData.recordatorioCitas,
+          confirmacion_citas: formData.confirmacionCitas,
+        },
+      });
+      updateTenant(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Error al guardar la configuración');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordMessage('');
+    setPasswordError('');
+    if (!passwordData.currentPassword || !passwordData.newPassword) {
+      setPasswordError('Ingresa tu contraseña actual y la nueva contraseña');
+      return;
+    }
+    if (passwordData.newPassword.length < 8) {
+      setPasswordError('La nueva contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setPasswordError('La confirmación no coincide con la nueva contraseña');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const res = await api.changePassword(passwordData.currentPassword, passwordData.newPassword);
+      setPasswordMessage(res.message || 'Contraseña actualizada exitosamente');
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setPasswordError(err instanceof ApiError ? err.message : 'Error al actualizar la contraseña');
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const tabs = [
@@ -49,13 +114,21 @@ export default function SettingsPage() {
         </div>
         <button
           onClick={handleSave}
+          disabled={saving || !tenant}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl
-            hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-200/50 transition-all"
+            hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-200/50 transition-all disabled:opacity-50"
         >
           {saved ? <CheckCircle size={18} /> : <Save size={18} />}
-          {saved ? 'Guardado' : 'Guardar Cambios'}
+          {saved ? 'Guardado' : saving ? 'Guardando...' : 'Guardar Cambios'}
         </button>
       </div>
+
+      {saveError && (
+        <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-center gap-2">
+          <AlertCircle size={16} />
+          {saveError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-white rounded-xl p-1 border border-stone-200 overflow-x-auto">
@@ -189,18 +262,28 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-3">Días de Operación</label>
               <div className="flex flex-wrap gap-2">
-                {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((day, i) => (
-                  <button
-                    key={i}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      i < 6
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-stone-50 text-stone-400 border border-stone-200'
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ))}
+                {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((day, i) => {
+                  const isActive = formData.diasOperacion.includes(i + 1);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        diasOperacion: isActive
+                          ? formData.diasOperacion.filter(d => d !== i + 1)
+                          : [...formData.diasOperacion, i + 1].sort(),
+                      })}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        isActive
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-stone-50 text-stone-400 border border-stone-200'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -242,19 +325,46 @@ export default function SettingsPage() {
               <div className="p-4 bg-stone-50 rounded-xl">
                 <p className="text-sm font-medium text-stone-700">Cambiar Contraseña</p>
                 <p className="text-xs text-stone-500 mt-0.5 mb-3">Actualiza tu contraseña de acceso</p>
+                {passwordError && (
+                  <div className="p-3 mb-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-center gap-2">
+                    <AlertCircle size={15} />
+                    {passwordError}
+                  </div>
+                )}
+                {passwordMessage && (
+                  <div className="p-3 mb-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-700 flex items-center gap-2">
+                    <CheckCircle size={15} />
+                    {passwordMessage}
+                  </div>
+                )}
                 <div className="space-y-3 max-w-sm">
                   <input
                     type="password"
                     placeholder="Contraseña actual"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                     className="w-full px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
                   />
                   <input
                     type="password"
                     placeholder="Nueva contraseña"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                     className="w-full px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
                   />
-                  <button className="px-4 py-2 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors">
-                    Actualizar Contraseña
+                  <input
+                    type="password"
+                    placeholder="Confirmar nueva contraseña"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={passwordLoading}
+                    className="px-4 py-2 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors disabled:opacity-50"
+                  >
+                    {passwordLoading ? 'Actualizando...' : 'Actualizar Contraseña'}
                   </button>
                 </div>
               </div>

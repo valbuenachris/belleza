@@ -37,6 +37,23 @@ def get_database() -> Generator:
 # Dependencia: Obtener el tenant actual
 # ============================================================
 
+def get_current_tenant_id(request: Request) -> str:
+    """
+    Obtiene el tenant_id del request.state (inyectado por el middleware).
+    Útil para recursos de dominio (pacientes, citas, servicios, usuarios).
+
+    Raises:
+        HTTPException 403: Si no hay tenant asociado (ej. superadmin)
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requiere un SPA activo para esta operación",
+        )
+    return tenant_id
+
+
 def get_current_tenant(
     request: Request,
     db: Session = Depends(get_db),

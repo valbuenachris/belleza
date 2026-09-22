@@ -77,6 +77,26 @@ class UserUpdate(BaseModel):
     rol: Optional[str] = None
     activo: Optional[bool] = None
     avatar_url: Optional[str] = Field(None, max_length=500)
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
+
+    @field_validator("rol")
+    @classmethod
+    def validar_rol(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            roles_validos = ["admin", "manager", "receptionist", "therapist"]
+            if v.lower() not in roles_validos:
+                raise ValueError(f"Rol inválido. Opciones: {', '.join(roles_validos)}")
+            return v.lower()
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            es_valida, mensaje = validate_password_strength(v)
+            if not es_valida:
+                raise ValueError(mensaje)
+        return v
 
 
 # ============================================================

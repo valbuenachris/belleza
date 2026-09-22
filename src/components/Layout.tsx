@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { Page } from '../types';
 import {
   LayoutDashboard, Building2, Users, Calendar, UserCheck,
-  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Bell, Search, BookOpen
+  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Bell, Search, BookOpen, Tag
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -19,10 +19,11 @@ interface LayoutProps {
 const navItems: { id: Page; label: string; icon: React.ReactNode; roles: string[] }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['superadmin', 'admin', 'manager', 'receptionist', 'therapist'] },
   { id: 'tenants', label: 'SPAs / Tenants', icon: <Building2 size={20} />, roles: ['superadmin'] },
-  { id: 'users', label: 'Usuarios', icon: <Users size={20} />, roles: ['superadmin', 'admin', 'manager'] },
-  { id: 'appointments', label: 'Citas', icon: <Calendar size={20} />, roles: ['superadmin', 'admin', 'manager', 'receptionist', 'therapist'] },
-  { id: 'patients', label: 'Pacientes', icon: <UserCheck size={20} />, roles: ['superadmin', 'admin', 'manager', 'receptionist', 'therapist'] },
-  { id: 'settings', label: 'Configuración', icon: <Settings size={20} />, roles: ['superadmin', 'admin', 'manager', 'receptionist', 'therapist'] },
+  { id: 'users', label: 'Usuarios', icon: <Users size={20} />, roles: ['admin', 'manager'] },
+  { id: 'services', label: 'Servicios', icon: <Tag size={20} />, roles: ['admin', 'manager'] },
+  { id: 'appointments', label: 'Citas', icon: <Calendar size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
+  { id: 'patients', label: 'Pacientes', icon: <UserCheck size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
+  { id: 'settings', label: 'Configuración', icon: <Settings size={20} />, roles: ['admin'] },
   { id: 'docs', label: 'Documentación', icon: <BookOpen size={20} />, roles: ['superadmin', 'admin', 'manager', 'receptionist', 'therapist'] },
 ];
 

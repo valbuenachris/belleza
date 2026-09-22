@@ -1,9 +1,7 @@
 # ============================================================
 # docker-compose.dev.yml - Override para desarrollo
-# Uso: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 # ============================================================
-
-version: '3.8'
 
 services:
   backend:
@@ -16,7 +14,9 @@ services:
     volumes:
       # Montar todo el backend para hot-reload completo
       - ./backend/app:/app/app
-      - ./backend/alembic.ini:/app/alembic.ini
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+      - ./backend/alembic:/app/alembic:ro
+      - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
     ports:
       - "8000:8000"
       # Puerto adicional para debugging
@@ -29,10 +29,4 @@ services:
     ports:
       - "80:80"
 
-  mysql:
-    ports:
-      - "3306:3306"
-
-  redis:
-    ports:
-      - "6379:6379"
+  # MySQL y Redis ya exponen sus puertos en docker-compose.yml base

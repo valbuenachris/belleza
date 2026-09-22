@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from ..utils.validators import validate_subdomain, validate_email
+from ..utils.validators import validate_subdomain, validate_email, validate_password_strength
 
 
 # ============================================================
@@ -17,7 +17,14 @@ from ..utils.validators import validate_subdomain, validate_email
 class TenantBase(BaseModel):
     """Campos comunes para todos los schemas de Tenant."""
     nombre: str = Field(..., min_length=2, max_length=255, description="Nombre del SPA")
-    subdominio: str = Field(..., min_length=3, max_length=100, description="Subdominio único")
+    subdominio: Optional[str] = Field(
+        None,
+        max_length=100,
+        description=(
+            "Subdominio opcional. Ya no es necesario para el enrutamiento "
+            "(login universal por email); si se omite, se auto-genera."
+        ),
+    )
     email: Optional[str] = Field(None, max_length=255, description="Email de contacto")
     telefono: Optional[str] = Field(None, max_length=50, description="Teléfono de contacto")
     direccion: Optional[str] = Field(None, max_length=500, description="Dirección física")
@@ -26,13 +33,16 @@ class TenantBase(BaseModel):
     
     @field_validator("subdominio")
     @classmethod
-    def validar_subdominio(cls, v: str) -> str:
+    def validar_subdominio(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        v = v.strip().lower()
         if not validate_subdomain(v):
             raise ValueError(
                 "El subdominio solo puede contener minúsculas, números y guiones. "
                 "Mínimo 3 caracteres."
             )
-        return v.lower()
+        return v
     
     @field_validator("email")
     @classmethod
@@ -46,11 +56,46 @@ class TenantBase(BaseModel):
 # Schema para crear un nuevo Tenant
 # ============================================================
 
+class TenantAdminCreate(BaseModel):
+    """Credenciales iniciales del administrador del nuevo tenant."""
+    nombre: str = Field(..., min_length=1, max_length=100, description="Nombre del administrador")
+    apellido: str = Field(..., min_length=1, max_length=100, description="Apellido del administrador")
+    email: str = Field(..., max_length=255, description="Email de acceso")
+    password: str = Field(..., min_length=8, max_length=128, description="Contraseña temporal")
+    rol: str = Field("admin", description="Rol inicial: admin o manager")
+
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, v: str) -> str:
+        if not validate_email(v):
+            raise ValueError("Formato de email inválido")
+        return v.lower()
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, v: str) -> str:
+        es_valida, mensaje = validate_password_strength(v)
+        if not es_valida:
+            raise ValueError(mensaje)
+        return v
+
+    @field_validator("rol")
+    @classmethod
+    def validar_rol(cls, v: str) -> str:
+        if v.lower() not in ["admin", "manager"]:
+            raise ValueError("Rol inválido. Opciones: admin, manager")
+        return v.lower()
+
+
 class TenantCreate(TenantBase):
     """Datos necesarios para crear un nuevo tenant."""
     plan: str = Field("basic", description="Plan: basic, professional, enterprise")
     limite_usuarios: int = Field(10, ge=1, le=1000, description="Límite de usuarios")
     limite_pacientes: int = Field(1000, ge=1, le=100000, description="Límite de pacientes")
+    admin: Optional[TenantAdminCreate] = Field(
+        None,
+        description="Credenciales iniciales del administrador del tenant",
+    )
     
     @field_validator("plan")
     @classmethod
@@ -68,6 +113,7 @@ class TenantCreate(TenantBase):
 class TenantUpdate(BaseModel):
     """Datos opcionales para actualizar un tenant. Todos los campos son opcionales."""
     nombre: Optional[str] = Field(None, min_length=2, max_length=255)
+    subdominio: Optional[str] = Field(None, max_length=100)
     plan: Optional[str] = None
     activo: Optional[bool] = None
     fecha_expiracion: Optional[datetime] = None
@@ -80,6 +126,23 @@ class TenantUpdate(BaseModel):
     email: Optional[str] = Field(None, max_length=255)
     timezone: Optional[str] = Field(None, max_length=50)
     moneda: Optional[str] = Field(None, max_length=3)
+
+    @field_validator("subdominio")
+    @classmethod
+    def validar_subdominio(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        return v.strip().lower()
+
+    @field_validator("plan")
+    @classmethod
+    def validar_plan(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        planes_validos = ["basic", "professional", "enterprise"]
+        if v.lower() not in planes_validos:
+            raise ValueError(f"Plan inválido. Opciones: {', '.join(planes_validos)}")
+        return v.lower()
 
 
 # ============================================================
@@ -111,7 +174,7 @@ class TenantListResponse(BaseModel):
     
     id: str
     nombre: str
-    subdominio: str
+    subdominio: Optional[str] = None
     plan: str
     activo: bool
     fecha_creacion: datetime

@@ -23,7 +23,7 @@ const Auth = {
      * @returns {Promise<Object>} Datos del usuario y tokens
      */
     async login(email, password) {
-        const response = await api.post('/auth/login', { email, password }, false);
+        const response = await API.post('/auth/login', { email, password }, false);
         
         // Guardar tokens y datos del usuario
         this.setSession(response);
@@ -39,7 +39,7 @@ const Auth = {
      */
     async logout() {
         try {
-            await api.post('/auth/logout');
+            await API.post('/auth/logout');
         } catch {
             // Ignorar errores de logout
         }
@@ -153,7 +153,7 @@ const Auth = {
         if (!refreshToken) return false;
 
         try {
-            const response = await api.post('/auth/refresh', { refresh_token: refreshToken }, false);
+            const response = await API.post('/auth/refresh', { refresh_token: refreshToken }, false);
             this.setSession(response);
             return true;
         } catch {

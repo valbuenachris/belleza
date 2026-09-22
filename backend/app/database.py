@@ -41,6 +41,17 @@ engine = create_engine(
 )
 
 
+def get_connection_info() -> str:
+    """
+    Devuelve el destino de conexión a la base de datos (sin credenciales).
+
+    Útil para diagnóstico del login universal: confirma si el backend está
+    apuntando al host externo (ej. 15.204.88.86) o al contenedor MySQL de
+    Docker ('mysql'), es decir, DÓNDE se están buscando los usuarios.
+    """
+    return f"{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
+
+
 # ============================================================
 # SessionLocal - Fábrica de sesiones de base de datos
 # ============================================================
@@ -94,9 +105,10 @@ def check_connection() -> bool:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+        logger.info(f"Conexión a base de datos confirmada: {get_connection_info()}")
         return True
     except Exception as e:
-        logger.error(f"Error al verificar conexión a DB: {e}")
+        logger.error(f"Error al verificar conexión a DB ({get_connection_info()}): {e}")
         return False
 
 
@@ -126,6 +138,7 @@ def init_db(max_retries: int = 30, retry_delay: int = 2) -> None:
         retry_delay: Segundos entre cada intento
     """
     logger.info("Inicializando base de datos...")
+    logger.info(f"Destino de base de datos: {get_connection_info()}")
     
     for attempt in range(1, max_retries + 1):
         try:

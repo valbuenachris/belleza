@@ -40,11 +40,24 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     API_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "production"
+    # Habilita /docs, /redoc y /openapi.json de forma explícita.
+    # En producción están deshabilitados salvo que ENABLE_DOCS=true.
+    ENABLE_DOCS: bool = False
     
     # ----------------------------------------------------------
     # CORS - Orígenes permitidos
+    # No usar "*" con allow_credentials=True.
+    # Lista separada por comas: esquema+host (sin ruta).
     # ----------------------------------------------------------
-    CORS_ORIGINS: str = "http://localhost:80,http://localhost"
+    CORS_ORIGINS: str = (
+        "http://localhost,http://localhost:80,http://localhost:8088,"
+        "http://localhost:5173,http://127.0.0.1,http://127.0.0.1:8088,"
+        "http://127.0.0.1:5173"
+    )
+    # Regex para orígenes locales (cualquier puerto): útil en desarrollo y
+    # cuando el frontend se sirve desde localhost/127.0.0.1. Se combina con
+    # CORS_ORIGINS, por lo que no reemplaza a los dominios de producción.
+    CORS_ORIGIN_REGEX: str = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
     
     # ----------------------------------------------------------
     # Tenant por defecto
@@ -110,6 +123,18 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Detecta si está en entorno de producción."""
         return self.ENVIRONMENT.lower() == "production"
+    
+    @property
+    def docs_available(self) -> bool:
+        """
+        Indica si la documentación interactiva (/docs, /redoc, /openapi.json)
+        debe estar habilitada.
+        
+        Se habilita cuando:
+        - ENABLE_DOCS=true (flag explícito), o
+        - el entorno NO es producción (desarrollo/QA)
+        """
+        return self.ENABLE_DOCS or not self.is_production
     
     @field_validator("SECRET_KEY")
     @classmethod

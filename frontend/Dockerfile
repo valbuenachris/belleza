@@ -1,33 +1,37 @@
 # ============================================================
-# frontend/Dockerfile - Imagen Nginx para frontend estático
-# Sirve HTML5 + CSS3 + JavaScript vanilla
+# frontend/Dockerfile - Build React App & Serve with Nginx
 # ============================================================
 
-# Imagen base Alpine (más ligera)
+# Paso 1: Construir la aplicación de React usando Node 20 (Slim)
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+# Copiar UNICAMENTE package.json para evitar conflictos de bloqueo de plataforma (lockfile bug)
+COPY package.json ./
+
+# Instalar dependencias limpias para el entorno actual
+RUN npm install --legacy-peer-deps
+
+# Copiar el código fuente de React y su configuración
+COPY index.html tsconfig.json vite.config.js ./
+COPY src/ ./src/
+
+# Construir para producción sin heredar bindings corruptos
+RUN npm run build
+
+# Paso 2: Servir con Nginx (Alpine para que la imagen final sea ultra ligera)
 FROM nginx:1.25-alpine
 
-# Metadata
-LABEL maintainer="SPA Management System"
-LABEL description="Frontend estático servido por Nginx"
-
-# Directorio de trabajo
-WORKDIR /usr/share/nginx/html
-
-# Eliminar archivos por defecto de Nginx
-RUN rm -rf /usr/share/nginx/html/*
-
-# Copiar todos los archivos estáticos del frontend
-COPY . .
+# Copiar los archivos compilados desde el builder al directorio de Nginx
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copiar configuración personalizada de Nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Exponer puerto 80
 EXPOSE 80
 
-# Healthcheck - Verifica que Nginx responda
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider http://localhost:80/ || exit 1
+    CMD wget -q --spider http://127.0.0.1:80/ || exit 1
 
-# Comando por defecto de Nginx
 CMD ["nginx", "-g", "daemon off;"]

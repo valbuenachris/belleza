@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPAs / Tenants - SPA Manager</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+</head>
+<body>
+    <div id="app" class="app-layout">
+        <!-- Sidebar -->
+        <!-- Sidebar se inyecta dinámicamente -->
+        <div id="sidebar-container"></div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <button class="menu-toggle" id="menuToggle" aria-label="Abrir menú">☰</button>
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" placeholder="Buscar..." aria-label="Buscar">
+                </div>
+                <div class="header-actions">
+                    <button class="notification-btn" aria-label="Notificaciones">
+                        🔔
+                        <span class="notification-badge">3</span>
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Page Content -->
+            <main class="page-content">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <div>
+                        <h1 class="page-title">SPAs / Tenants</h1>
+                        <p class="page-subtitle">Gestiona todos los centros de estética registrados</p>
+                    </div>
+                    <button class="btn btn-primary" id="btnNewTenant">+ Nuevo SPA</button>
+                </div>
+                
+                <!-- Search and Filter -->
+                <div class="filter-bar">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" class="search-input" id="searchTenants" placeholder="Buscar por nombre o subdominio...">
+                    </div>
+                    <button class="btn btn-secondary" id="btnSort">↕ Ordenar</button>
+                </div>
+                
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Total Tenants</p>
+                            <p class="stat-value" id="totalTenants">3</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Activos</p>
+                            <p class="stat-value" id="activeTenants">3</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Plan Enterprise</p>
+                            <p class="stat-value" id="enterpriseTenants">1</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tenants Table -->
+                <div class="card">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>SPA</th>
+                                    <th>SUBDOMINIO</th>
+                                    <th>PLAN</th>
+                                    <th>USUARIOS</th>
+                                    <th>ESTADO</th>
+                                    <th>ACCIONES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tenantsTableBody">
+                                <!-- Se llena dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Modal Nuevo Tenant -->
+    <div class="modal-overlay" id="newTenantModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Registrar Nuevo SPA</h2>
+                <p>Completa los datos para crear un nuevo tenant</p>
+            </div>
+            <div class="modal-body">
+                <form id="newTenantForm">
+                    <div class="form-group">
+                        <label>Nombre del SPA *</label>
+                        <input type="text" id="tenantNombre" required placeholder="Ej: Serenity Spa & Wellness">
+                    </div>
+                    <div class="form-group">
+                        <label>Subdominio *</label>
+                        <div class="input-group">
+                            <input type="text" id="tenantSubdomain" required placeholder="mi-spa">
+                            <span class="input-suffix">.spasystem.com</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Plan</label>
+                        <select id="tenantPlan" class="form-select">
+                            <option value="basic">Basic - $29/mes</option>
+                            <option value="professional" selected>Professional - $79/mes</option>
+                            <option value="enterprise">Enterprise - $199/mes</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Email de contacto</label>
+                        <input type="email" id="tenantEmail" placeholder="contacto@spa.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Teléfono</label>
+                        <input type="tel" id="tenantPhone" placeholder="+57 300 123 4567">
+                    </div>
+                    <div class="form-group">
+                        <label>Dirección</label>
+                        <input type="text" id="tenantAddress" placeholder="Calle 100 #15-20, Ciudad">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelTenant">Cancelar</button>
+                <button class="btn btn-primary" id="saveTenant">Crear SPA</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="js/tenants.js"></script>
+</body>
+</html>

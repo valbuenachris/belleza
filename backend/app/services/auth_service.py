@@ -13,7 +13,7 @@ from jose import JWTError
 from ..models.user import User
 from ..models.tenant import Tenant
 from ..schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
-from ..schemas.tenant import TenantCreate, TenantResponse
+from ..schemas.tenant import TenantCreate, TenantResponse, TenantConfig
 from ..utils.security import (
     hash_password,
     verify_password,
@@ -23,6 +23,8 @@ from ..utils.security import (
     generate_uuid,
 )
 from ..utils.validators import validate_email
+from ..config import settings
+from .tenant_service import generate_subdomain
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +44,32 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
         
     Returns:
         Usuario si las credenciales son válidas, None en caso contrario
+
+    NOTA (login universal): la búsqueda por email es GLOBAL, sin filtro de
+    tenant_id. En el login desde la root URL (sin subdominio) todavía no hay
+    contexto de tenant, por lo que no se restringe la consulta a ningún SPA.
+    El email es único en el sistema a nivel de aplicación.
     """
+    email = (email or "").strip().lower()
+    
     user = db.query(User).filter(
-        User.email == email.lower(),
+        User.email == email,
         User.is_active == True,
         User.deleted_at == None,
     ).first()
     
     if not user:
-        logger.warning(f"Intento de login con email no encontrado: {email}")
+        logger.warning(
+            f"Intento de login con email no encontrado: {email} "
+            f"(db: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME})"
+        )
         return None
     
     if not user.verify_password(password):
-        logger.warning(f"Intento de login con contraseña incorrecta: {email}")
+        logger.warning(
+            f"Intento de login con contraseña incorrecta: {email} "
+            f"(db: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME})"
+        )
         return None
     
     return user
@@ -114,6 +129,22 @@ def register_user(db: Session, user_data: UserCreate) -> User:
     return user
 
 
+def _resolve_subdomain(db: Session, provided: Optional[str], nombre: str) -> str:
+    """
+    Resuelve el subdominio al crear un tenant por registro público.
+
+    Ya no es obligatorio (login universal por email): si viene vacío se
+    auto-genera; si el proporcionado ya está en uso se genera un alternativo.
+    """
+    sd = (provided or "").strip().lower()
+    if not sd:
+        return generate_subdomain(db, nombre)
+    existing = db.query(Tenant).filter(Tenant.subdominio == sd).first()
+    if existing:
+        return generate_subdomain(db, sd)
+    return sd
+
+
 def register_tenant(
     db: Session,
     tenant_data: TenantCreate,
@@ -134,18 +165,15 @@ def register_tenant(
         ValueError: Si el subdominio ya existe
     """
     try:
-        # Verificar subdominio único
-        existing_subdomain = db.query(Tenant).filter(
-            Tenant.subdominio == tenant_data.subdominio.lower()
-        ).first()
-        if existing_subdomain:
-            raise ValueError("El subdominio ya está en uso. Elige otro.")
+        # El subdominio ya no es obligatorio (login universal por email):
+        # si se omite o está en uso, se auto-genera un valor único.
+        subdominio = _resolve_subdomain(db, tenant_data.subdominio, tenant_data.nombre)
         
         # Crear tenant
         tenant = Tenant(
             id=generate_uuid(),
             nombre=tenant_data.nombre,
-            subdominio=tenant_data.subdominio.lower(),
+            subdominio=subdominio,
             plan=tenant_data.plan,
             limite_usuarios=tenant_data.limite_usuarios,
             limite_pacientes=tenant_data.limite_pacientes,
@@ -154,6 +182,7 @@ def register_tenant(
             direccion=tenant_data.direccion,
             timezone=tenant_data.timezone,
             moneda=tenant_data.moneda,
+            configuracion=TenantConfig().model_dump(),
             is_active=True,
         )
         db.add(tenant)
@@ -273,9 +302,14 @@ def refresh_tokens(db: Session, refresh_token: str) -> Dict[str, Any]:
 def get_user_by_email(db: Session, email: str, tenant_id: Optional[str] = None) -> Optional[User]:
     """
     Busca un usuario por email, opcionalmente filtrando por tenant.
+
+    NOTA (login universal): si NO se pasa tenant_id, la búsqueda es GLOBAL
+    en todos los tenants. Esto es intencional para el login desde la root URL,
+    donde solo se conoce el email y el tenant se resuelve después.
     """
+    email = (email or "").strip().lower()
     query = db.query(User).filter(
-        User.email == email.lower(),
+        User.email == email,
         User.is_active == True,
         User.deleted_at == None,
     )

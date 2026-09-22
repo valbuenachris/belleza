@@ -3,8 +3,8 @@
 // ============================================================
 
 import React, { useState } from 'react';
-import { Sparkles, Building2, Globe, Mail, Lock, Loader2, CheckCircle, ArrowLeft } from 'lucide-react';
-import { api } from '../services/api';
+import { Sparkles, Building2, Mail, Lock, User, Check, X, Loader2, CheckCircle, ArrowLeft } from 'lucide-react';
+import { api, ApiError } from '../services/api';
 
 interface RegisterPageProps {
   onBack: () => void;
@@ -17,7 +17,8 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     spaName: '',
-    subdomain: '',
+    adminNombre: '',
+    adminApellido: '',
     adminEmail: '',
     adminPassword: '',
     confirmPassword: '',
@@ -25,22 +26,30 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
     address: '',
     plan: 'basic',
   });
-  const [subdomainAvailable, setSubdomainAvailable] = useState<boolean | null>(null);
 
-  const checkSubdomain = async (value: string) => {
-    if (value.length < 3) { setSubdomainAvailable(null); return; }
-    const available = await api.checkSubdomain(value);
-    setSubdomainAvailable(available);
+  const passwordChecks = () => {
+    const p = formData.adminPassword;
+    return [
+      { label: 'Mínimo 8 caracteres', ok: p.length >= 8 },
+      { label: 'Una letra mayúscula', ok: /[A-Z]/.test(p) },
+      { label: 'Una letra minúscula', ok: /[a-z]/.test(p) },
+      { label: 'Un número', ok: /[0-9]/.test(p) },
+      { label: 'Un carácter especial', ok: /[!@#$%^&*()_+\-=\[\]{}|;:',.<>?\/`~\\"]/.test(p) },
+    ];
   };
+  const passwordChecksList = passwordChecks();
+  const passwordValid = passwordChecksList.every(c => c.ok);
 
   const validateStep1 = () => {
-    return formData.spaName.length >= 3 && formData.subdomain.length >= 3 && subdomainAvailable === true;
+    return formData.spaName.length >= 3;
   };
 
   const validateStep2 = () => {
     return (
+      formData.adminNombre.trim().length > 0 &&
+      formData.adminApellido.trim().length > 0 &&
       formData.adminEmail.includes('@') &&
-      formData.adminPassword.length >= 8 &&
+      passwordValid &&
       formData.adminPassword === formData.confirmPassword
     );
   };
@@ -49,15 +58,23 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
     setError('');
     setLoading(true);
     try {
-      await api.registerSpa(
-        formData.spaName,
-        formData.subdomain,
-        formData.adminEmail,
-        formData.adminPassword
-      );
+      await api.registerSpa({
+        tenant_data: {
+          nombre: formData.spaName,
+          plan: formData.plan,
+          telefono: formData.phone || null,
+          direccion: formData.address || null,
+        },
+        admin_data: {
+          email: formData.adminEmail,
+          password: formData.adminPassword,
+          nombre: formData.adminNombre.trim(),
+          apellido: formData.adminApellido.trim(),
+        },
+      });
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message || 'Error al registrar el SPA');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al registrar el SPA');
     } finally {
       setLoading(false);
     }
@@ -77,8 +94,8 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
               Ya puedes acceder con tu cuenta de administrador.
             </p>
             <div className="bg-stone-50 rounded-xl p-4 mb-6 text-left">
-              <p className="text-xs text-stone-500 mb-1">Tu URL de acceso:</p>
-              <p className="text-sm font-medium text-emerald-600">{formData.subdomain}.spasystem.com</p>
+              <p className="text-xs text-stone-500 mb-1">Email de acceso:</p>
+              <p className="text-sm font-medium text-emerald-600">{formData.adminEmail.toLowerCase()}</p>
             </div>
             <button
               onClick={onBack}
@@ -160,33 +177,6 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                  <Globe size={14} className="inline mr-1.5" />
-                  Subdominio *
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={formData.subdomain}
-                    onChange={(e) => {
-                      const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-                      setFormData({ ...formData, subdomain: val });
-                      checkSubdomain(val);
-                    }}
-                    className="flex-1 px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
-                    placeholder="mi-spa"
-                  />
-                  <span className="text-sm text-stone-400 whitespace-nowrap">.spasystem.com</span>
-                </div>
-                {subdomainAvailable !== null && (
-                  <p className={`text-xs mt-1.5 ${subdomainAvailable ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {subdomainAvailable ? '✓ Subdominio disponible' : '✗ Subdominio no disponible'}
-                  </p>
-                )}
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1.5">Plan</label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -225,36 +215,81 @@ export default function RegisterPage({ onBack }: RegisterPageProps) {
             <div className="space-y-4">
               <h2 className="text-lg font-semibold text-stone-800 mb-4">Cuenta de Administrador</h2>
               
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                  <Mail size={14} className="inline mr-1.5" />
-                  Email del administrador *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={formData.adminEmail}
-                  onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
-                  placeholder="admin@tu-spa.com"
-                />
-              </div>
+<div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                    <Mail size={14} className="inline mr-1.5" />
+                    Email del administrador *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={formData.adminEmail}
+                    onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                    placeholder="admin@tu-spa.com"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                  <Lock size={14} className="inline mr-1.5" />
-                  Contraseña *
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={formData.adminPassword}
-                  onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
-                  placeholder="Mínimo 8 caracteres"
-                />
-              </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                      <User size={14} className="inline mr-1.5" />
+                      Nombre *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.adminNombre}
+                      onChange={(e) => setFormData({ ...formData, adminNombre: e.target.value })}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                      placeholder="María"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1.5">Apellido *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.adminApellido}
+                      onChange={(e) => setFormData({ ...formData, adminApellido: e.target.value })}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                      placeholder="González"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                    <Lock size={14} className="inline mr-1.5" />
+                    Contraseña *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={formData.adminPassword}
+                    onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                    placeholder="Mínimo 8 caracteres"
+                  />
+                  {formData.adminPassword.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                      {passwordChecksList.map(check => (
+                        <p
+                          key={check.label}
+                          className={`flex items-center gap-2 text-xs ${
+                            check.ok ? 'text-emerald-600' : 'text-stone-400'
+                          }`}
+                        >
+                          {check.ok
+                            ? <Check size={13} className="shrink-0" />
+                            : <X size={13} className="shrink-0" />}
+                          {check.label}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1.5">Confirmar contraseña *</label>

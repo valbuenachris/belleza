@@ -156,15 +156,6 @@ export default function LoginPage({ onNavigateRegister }: LoginPageProps) {
             </p>
           </div>
         </div>
-
-        {/* Demo credentials */}
-        <div className="mt-6 p-4 bg-white/80 backdrop-blur rounded-xl border border-stone-200">
-          <p className="text-xs font-medium text-stone-500 uppercase tracking-wider mb-2">Credenciales de Demo</p>
-          <div className="space-y-1.5 text-xs text-stone-600">
-            <p><span className="font-medium">Superadmin:</span> superadmin@spa.com / Admin123!</p>
-            <p><span className="font-medium">Admin Demo:</span> admin@demo.com / Admin123!</p>
-          </div>
-        </div>
       </div>
     </div>
   );

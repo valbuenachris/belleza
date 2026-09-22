@@ -14,7 +14,9 @@ import DashboardPage from './pages/DashboardPage';
 import TenantsPage from './pages/TenantsPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
-import { AppointmentsPage, PatientsPage } from './pages/PlaceholderPages';
+import AppointmentsPage from './pages/AppointmentsPage';
+import PatientsPage from './pages/PatientsPage';
+import ServicesPage from './pages/ServicesPage';
 import DocumentationPage from './pages/DocumentationPage';
 
 // ============================================================
@@ -51,13 +53,15 @@ function AppRouter() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <DashboardPage />;
+        return <DashboardPage onNavigate={setCurrentPage} />;
       case 'tenants':
         return <TenantsPage />;
       case 'users':
         return <UsersPage />;
       case 'appointments':
         return <AppointmentsPage />;
+      case 'services':
+        return <ServicesPage />;
       case 'patients':
         return <PatientsPage />;
       case 'settings':

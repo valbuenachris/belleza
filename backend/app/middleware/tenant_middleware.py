@@ -10,12 +10,10 @@ from datetime import datetime
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from jose import JWTError
 
-from ..config import settings
-from ..utils.security import decode_token
 from ..database import SessionLocal
 from ..models.tenant import Tenant
+from ..utils.http_headers import sanitize_request
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +23,7 @@ logger = logging.getLogger(__name__)
 PUBLIC_PATHS: List[str] = [
     "/api/v1/auth/login",
     "/api/v1/auth/register",
+    "/api/v1/auth/refresh",
     "/api/v1/auth/forgot-password",
     "/api/v1/auth/reset-password",
     "/health",
@@ -38,90 +37,86 @@ PUBLIC_PATHS: List[str] = [
 class TenantMiddleware(BaseHTTPMiddleware):
     """
     Middleware que valida el tenant en cada request autenticado.
-    
+
+    NOTA: El token JWT ya fue decodificado por el AuthMiddleware
+    (que es más externo y se ejecuta primero). Este middleware usa
+    request.state provisto por AuthMiddleware y NO vuelve a decodificar
+    el token. Solo abre una sesión de BD cuando se necesita validar
+    un tenant no-superadmin.
+
+    IMPORTANTE: el tenant NO se resuelve desde el subdominio de la URL.
+    El sistema usa login universal por email desde la root URL: el tenant
+    se determina a partir del claim 'tenant_id' del JWT del usuario. Por
+    eso este middleware solo valida el tenant indicado en el token.
+
     Flujo:
-    1. Si la ruta es pública, pasar sin validación
-    2. Extraer el token JWT del header Authorization
-    3. Decodificar el token y obtener el tenant_id
-    4. Validar que el tenant exista y esté activo
-    5. Validar que el tenant no haya expirado
-    6. Inyectar el tenant_id en request.state
+    1. Rutas públicas y OPTIONS pasan sin validación
+    2. Superadmin no requiere tenant
+    3. Validar el tenant en la base de datos (activo y no expirado)
+    4. Inyectar el tenant en request.state
     """
-    
+
     async def dispatch(self, request: Request, call_next) -> Response:
         """
         Procesa cada request HTTP.
         """
         path = request.url.path
-        
+        method = request.method
+
+        # ----------------------------------------------------------
+        # Permitir OPTIONS (CORS preflight) sin validación de tenant.
+        # Se responde 200 de inmediato para saltar toda validación.
+        # ----------------------------------------------------------
+        if method == "OPTIONS":
+            return Response(status_code=200)
+
+        # ----------------------------------------------------------
+        # Red de seguridad: normalizar Content-Type (idempotente).
+        # AuthMiddleware ya lo hace al ser más externo; aquí se aplica
+        # por si un proxy/ruta saltó esa capa. Protege el pipeline de
+        # "unterminated character set at position 0" (charsets rotos).
+        # ----------------------------------------------------------
+        request = sanitize_request(request)
+
         # ----------------------------------------------------------
         # Paso 1: Permitir rutas públicas sin validación
+        # (login/registro/refresh son globales por email, sin tenant)
         # ----------------------------------------------------------
         if self._is_public_path(path):
             return await call_next(request)
-        
+
         # ----------------------------------------------------------
-        # Paso 2: Extraer el token del header Authorization
+        # Paso 2: Usar el estado autenticado provisto por AuthMiddleware
         # ----------------------------------------------------------
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
+        user_id = getattr(request.state, "user_id", None)
+        if not user_id:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Token de autenticación no proporcionado"},
             )
-        
-        # Formato: "Bearer <token>"
-        parts = auth_header.split()
-        if len(parts) != 2 or parts[0].lower() != "bearer":
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Formato de token inválido. Use: Bearer <token>"},
-            )
-        
-        token = parts[1]
-        
+
+        tenant_id = getattr(request.state, "tenant_id", None)
+        rol = getattr(request.state, "user_rol", None)
+
         # ----------------------------------------------------------
-        # Paso 3: Decodificar el token
+        # Paso 3: Superadmin no requiere tenant
         # ----------------------------------------------------------
-        try:
-            payload = decode_token(token)
-        except JWTError as e:
-            logger.warning(f"Token inválido: {e}")
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Token inválido o expirado"},
-            )
-        
-        # Verificar que sea un access token
-        if payload.get("type") != "access":
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Tipo de token inválido"},
-            )
-        
-        tenant_id = payload.get("tenant_id")
-        
-        # ----------------------------------------------------------
-        # Paso 4: Superadmin no requiere tenant
-        # ----------------------------------------------------------
-        rol = payload.get("rol")
         if rol == "superadmin":
             request.state.tenant_id = None
-            request.state.user_id = payload.get("sub")
-            request.state.user_rol = rol
+            request.state.tenant = None
             return await call_next(request)
-        
+
         # ----------------------------------------------------------
-        # Paso 5: Validar que exista tenant_id en el token
+        # Paso 4: Validar que exista tenant_id en el token
         # ----------------------------------------------------------
         if not tenant_id:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "No se encontró tenant asociado al usuario"},
             )
-        
+
         # ----------------------------------------------------------
-        # Paso 6: Validar el tenant en la base de datos
+        # Paso 5: Validar el tenant en la base de datos
         # ----------------------------------------------------------
         db = SessionLocal()
         try:
@@ -129,23 +124,23 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 Tenant.id == tenant_id,
                 Tenant.deleted_at == None,
             ).first()
-            
+
             if not tenant:
                 logger.warning(f"Tenant no encontrado: {tenant_id}")
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "El tenant no existe o ha sido eliminado"},
                 )
-            
+
             if not tenant.is_active:
                 logger.warning(f"Intento de acceso a tenant inactivo: {tenant_id}")
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "El tenant está desactivado. Contacta al administrador."},
                 )
-            
+
             # ----------------------------------------------------------
-            # Paso 7: Validar que el tenant no haya expirado
+            # Paso 6: Validar que el tenant no haya expirado
             # ----------------------------------------------------------
             if tenant.fecha_expiracion and datetime.utcnow() > tenant.fecha_expiracion:
                 logger.warning(f"Tenant expirado: {tenant_id}")
@@ -153,17 +148,15 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     status_code=403,
                     content={"detail": "La suscripción del tenant ha expirado"},
                 )
-            
+
             # ----------------------------------------------------------
-            # Paso 8: Inyectar datos en request.state
+            # Paso 7: Inyectar datos en request.state
             # ----------------------------------------------------------
-            request.state.tenant_id = tenant_id
+            request.state.tenant_id = tenant.id
             request.state.tenant = tenant
-            request.state.user_id = payload.get("sub")
-            request.state.user_rol = rol
-            
+
             return await call_next(request)
-        
+
         except Exception as e:
             logger.error(f"Error en TenantMiddleware: {e}")
             return JSONResponse(
@@ -172,7 +165,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             )
         finally:
             db.close()
-    
+
     def _is_public_path(self, path: str) -> bool:
         """Verifica si la ruta es pública (no requiere validación de tenant)."""
         for public_path in PUBLIC_PATHS:

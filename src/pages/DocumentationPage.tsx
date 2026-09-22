@@ -340,7 +340,6 @@ CMD gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker \\
                 { method: 'PUT', path: '/api/v1/tenants/{id}', desc: 'Actualizar tenant' },
                 { method: 'DELETE', path: '/api/v1/tenants/{id}', desc: 'Soft delete tenant' },
                 { method: 'GET', path: '/api/v1/tenants/{id}/stats', desc: 'Estadísticas del tenant' },
-                { method: 'POST', path: '/api/v1/tenants/check-subdomain', desc: 'Verificar disponibilidad' },
               ].map((endpoint, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 bg-stone-50 rounded-xl">
                   <span className={`px-2 py-0.5 text-xs font-bold rounded ${
@@ -413,7 +412,7 @@ curl -X GET http://localhost:8000/api/v1/tenants \\
                     {[
                       ['id', 'UUID', 'PRIMARY KEY'],
                       ['nombre', 'VARCHAR(255)', 'NOT NULL'],
-                      ['subdominio', 'VARCHAR(100)', 'UNIQUE, NOT NULL, INDEX'],
+                      ['subdominio', 'VARCHAR(100)', 'NULLABLE, INDEX (auto-generado si no se envía)'],
                       ['plan', 'ENUM(basic,professional,enterprise)', 'DEFAULT basic'],
                       ['activo', 'BOOLEAN', 'DEFAULT TRUE'],
                       ['fecha_creacion', 'DATETIME', 'DEFAULT NOW()'],

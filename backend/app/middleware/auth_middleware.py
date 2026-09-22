@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from jose import JWTError
 
 from ..utils.security import decode_token
+from ..utils.http_headers import sanitize_request
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 PUBLIC_PATHS: List[str] = [
     "/api/v1/auth/login",
     "/api/v1/auth/register",
+    "/api/v1/auth/refresh",
     "/api/v1/auth/forgot-password",
     "/api/v1/auth/reset-password",
     "/health",
@@ -28,38 +30,50 @@ PUBLIC_PATHS: List[str] = [
     "/redoc",
     "/openapi.json",
     "/",
-    "/api/v1/tenants/check-subdomain",  # Público para registro
 ]
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
-    Middleware que verifica la presencia y validez del token JWT.
-    
-    Este middleware se ejecuta ANTES del TenantMiddleware.
-    Solo verifica que el token exista y sea válido.
-    La validación del tenant se hace en TenantMiddleware.
+    Middleware que verifica la autenticación JWT en requests.
+
+    Este middleware es el ÚNICO que decodifica el token JWT y valida
+    que sea un access token válido. Los datos extraídos (user_id, email,
+    rol, tenant_id) se inyectan en request.state para que el
+    TenantMiddleware y las dependencias los usen sin re-decodificar.
     """
-    
+
     async def dispatch(self, request: Request, call_next) -> Response:
         """
         Procesa cada request HTTP verificando autenticación.
         """
         path = request.url.path
         method = request.method
-        
+
         # ----------------------------------------------------------
-        # Permitir OPTIONS (CORS preflight) sin autenticación
+        # Permitir OPTIONS (CORS preflight) sin autenticación.
+        # Se responde 200 de inmediato para que el CORSMiddleware
+        # (más externo) añada las cabeceras y el preflight nunca
+        # llegue a la validación de token.
         # ----------------------------------------------------------
         if method == "OPTIONS":
-            return await call_next(request)
-        
+            return Response(status_code=200)
+
+        # ----------------------------------------------------------
+        # Normalizar Content-Type antes de procesar el request.
+        # Descarta charset/parámetros malformados (ej: '; charset=',
+        # '"utf-8', '[a-z') que provocan re.error tipo
+        # "unterminated character set at position 0" en parsers de
+        # charset. Esto asegura que los bodies JSON se parseen como JSON.
+        # ----------------------------------------------------------
+        request = sanitize_request(request)
+
         # ----------------------------------------------------------
         # Permitir rutas públicas sin autenticación
         # ----------------------------------------------------------
         if self._is_public_path(path):
             return await call_next(request)
-        
+
         # ----------------------------------------------------------
         # Verificar presencia del token
         # ----------------------------------------------------------
@@ -72,7 +86,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     "code": "MISSING_TOKEN",
                 },
             )
-        
+
         # ----------------------------------------------------------
         # Validar formato del header
         # ----------------------------------------------------------
@@ -85,15 +99,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     "code": "INVALID_FORMAT",
                 },
             )
-        
+
         token = parts[1]
-        
+
         # ----------------------------------------------------------
-        # Decodificar y validar el token
+        # Decodificar y validar el token (única decodificación por request)
         # ----------------------------------------------------------
         try:
             payload = decode_token(token)
-            
+
             # Verificar que tenga los campos mínimos
             if not payload.get("sub"):
                 return JSONResponse(
@@ -103,15 +117,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         "code": "INVALID_TOKEN",
                     },
                 )
-            
+
+            # Solo los access tokens autorizan rutas autenticadas
+            if payload.get("type") != "access":
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "detail": "Tipo de token inválido. Se requiere un access token.",
+                        "code": "INVALID_TOKEN_TYPE",
+                    },
+                )
+
             # Almacenar datos del usuario en request.state
-            # (TenantMiddleware los usará después)
+            # (TenantMiddleware y dependencias los usarán después)
             request.state.user_id = payload.get("sub")
             request.state.user_email = payload.get("email")
             request.state.user_rol = payload.get("rol")
-            
+            request.state.tenant_id = payload.get("tenant_id")
+
             return await call_next(request)
-        
+
         except JWTError as e:
             error_msg = str(e)
             if "expired" in error_msg.lower():
@@ -130,7 +155,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         "code": "INVALID_TOKEN",
                     },
                 )
-        
+
         except Exception as e:
             logger.error(f"Error inesperado en AuthMiddleware: {e}")
             return JSONResponse(

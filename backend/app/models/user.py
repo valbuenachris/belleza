@@ -6,7 +6,7 @@
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.mysql import CHAR
 
@@ -25,6 +25,11 @@ class User(Base, TenantBaseModel):
     """
     
     __tablename__ = "users"
+    __table_args__ = (
+        # Índice compuesto para optimizar queries por tenant (paridad con
+        # la migración 0001 y con database/schema.sql)
+        Index("idx_tenant_active", "tenant_id", "is_active"),
+    )
     
     # ----------------------------------------------------------
     # Credenciales
@@ -95,12 +100,21 @@ class User(Base, TenantBaseModel):
     # ----------------------------------------------------------
     # Relaciones
     # ----------------------------------------------------------
+    tenant_id: Mapped[Optional[str]] = mapped_column(
+        CHAR(36),
+        ForeignKey("tenants.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="FK al tenant",
+    )
+    
     tenant: Mapped[Optional["Tenant"]] = relationship(
         "Tenant",
         back_populates="usuarios",
         lazy="joined",
+        foreign_keys="[User.tenant_id]",
     )
-    
+
     # ----------------------------------------------------------
     # Métodos de contraseña
     # ----------------------------------------------------------
@@ -135,7 +149,17 @@ class User(Base, TenantBaseModel):
     def is_superadmin(self) -> bool:
         """Verifica si el usuario es superadministrador."""
         return self.rol == "superadmin"
-    
+
+    @property
+    def activo(self) -> bool:
+        """Alias para is_active (compatibilidad con la UI)."""
+        return self.is_active
+
+    @property
+    def nombre_completo(self) -> str:
+        """Nombre completo del usuario."""
+        return f"{self.nombre} {self.apellido}"
+
     @property
     def full_name(self) -> str:
         """Retorna el nombre completo del usuario."""

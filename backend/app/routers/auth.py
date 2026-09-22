@@ -4,7 +4,8 @@
 # ============================================================
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -42,49 +43,93 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
 )
 def login(
     credentials: UserLogin,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
     Inicia sesión con email y contraseña.
-    
     Retorna access_token y refresh_token para autenticación posterior.
+
+    Login universal: el usuario puede iniciar sesión desde la root URL
+    (sin subdominio). No se necesita el subdominio para resolver el tenant:
+    se busca al usuario por email y su tenant_id se inyecta en
+    request.state antes de validar la contraseña.
     """
-    # Autenticar usuario
+    # 0. Búsqueda por email y resolución del tenant (sin subdominio).
+    #    Antes de validar la contraseña se localiza al usuario por email
+    #    para extraer su tenant_id y dejarlo disponible en request.state
+    #    como contexto del SPA correspondiente.
+    user_by_email = get_user_by_email(db, credentials.email)
+    if user_by_email:
+        request.state.user_id = str(user_by_email.id)
+        request.state.user_email = user_by_email.email
+        request.state.user_rol = user_by_email.rol
+        request.state.tenant_id = str(user_by_email.tenant_id) if user_by_email.tenant_id else None
+
+    # 1. Autenticar usuario
     user = authenticate_user(db, credentials.email, credentials.password)
     
     if not user:
+        logger.warning(f"Intento de login fallido: {credentials.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales inválidas. Verifica tu correo y contraseña.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not user.is_active:
+    # 2. Verificar estado activo
+    if not getattr(user, 'is_active', True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tu cuenta ha sido desactivada. Contacta al administrador.",
         )
     
-    # Generar tokens
+    # 3. Generar tokens
+    #    El access_token y refresh_token incluyen el claim 'tenant_id'
+    #    correcto (autenticate_user devuelve el usuario con su tenant_id),
+    #    de modo que los requests posteriores operen sobre el SPA del
+    #    usuario sin depender del subdominio de la URL.
     tokens = create_tokens(user)
     
-    # Actualizar último acceso
+    # 4. Actualizar último acceso
     update_last_access(db, user)
     
-    # Obtener tenant si existe
-    tenant_response = None
-    if user.tenant:
-        tenant_response = TenantResponse.model_validate(user.tenant)
+    # 5. Serialización completa con todos los campos requeridos
+    user_dict = {
+        "id": str(user.id),
+        "username": user.username,
+        "email": user.email,
+        "nombre": user.nombre,
+        "apellido": user.apellido,
+        "rol": user.rol,
+        "activo": getattr(user, 'is_active', True),
+        "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+        "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
+    }
     
+    tenant_dict = None
+    if hasattr(user, 'tenant') and user.tenant:
+        tenant_dict = {
+            "id": str(user.tenant.id),
+            "nombre": user.tenant.nombre,
+            "subdominio": user.tenant.subdominio,
+            "plan": user.tenant.plan if hasattr(user.tenant, 'plan') else "basic",
+            "activo": getattr(user.tenant, 'is_active', True) if hasattr(user.tenant, 'is_active') else True,
+            "fecha_creacion": user.tenant.created_at.isoformat() if hasattr(user.tenant, 'created_at') and user.tenant.created_at else datetime.utcnow().isoformat(),
+            "limite_usuarios": user.tenant.limite_usuarios if hasattr(user.tenant, 'limite_usuarios') else 10,
+            "limite_pacientes": user.tenant.limite_pacientes if hasattr(user.tenant, 'limite_pacientes') else 100,
+        }
+
     logger.info(f"Login exitoso: {user.email}")
     
-    return TokenResponse(
-        access_token=tokens["access_token"],
-        refresh_token=tokens["refresh_token"],
-        token_type=tokens["token_type"],
-        user=UserResponse.model_validate(user),
-        tenant=tenant_response,
-    )
+    # 6. Retornar diccionario completo
+    return {
+        "access_token": tokens["access_token"],
+        "refresh_token": tokens["refresh_token"],
+        "token_type": "bearer",
+        "user": user_dict,
+        "tenant": tenant_dict,
+    }
 
 
 # ============================================================
@@ -104,7 +149,6 @@ def register(
 ):
     """
     Registra un nuevo SPA en el sistema.
-    
     Crea el tenant y un usuario administrador en una transacción atómica.
     """
     try:
@@ -113,19 +157,41 @@ def register(
         # Generar tokens para el admin recién creado
         tokens = create_tokens(result["user"])
         
-        tenant_response = TenantResponse.model_validate(result["tenant"])
-        user_response = UserResponse.model_validate(result["user"])
+        # Serialización completa
+        tenant_dict = {
+            "id": str(result["tenant"].id),
+            "nombre": result["tenant"].nombre,
+            "subdominio": result["tenant"].subdominio,
+            "plan": result["tenant"].plan if hasattr(result["tenant"], 'plan') else "basic",
+            "activo": getattr(result["tenant"], 'is_active', True) if hasattr(result["tenant"], 'is_active') else True,
+            "fecha_creacion": result["tenant"].created_at.isoformat() if hasattr(result["tenant"], 'created_at') and result["tenant"].created_at else datetime.utcnow().isoformat(),
+            "limite_usuarios": result["tenant"].limite_usuarios if hasattr(result["tenant"], 'limite_usuarios') else 10,
+            "limite_pacientes": result["tenant"].limite_pacientes if hasattr(result["tenant"], 'limite_pacientes') else 100,
+        }
+        
+        user_dict = {
+            "id": str(result["user"].id),
+            "username": result["user"].username,
+            "email": result["user"].email,
+            "nombre": result["user"].nombre,
+            "apellido": result["user"].apellido,
+            "rol": result["user"].rol,
+            "activo": getattr(result["user"], 'is_active', True),
+            "tenant_id": str(result["user"].tenant_id),
+            "created_at": result["user"].created_at.isoformat() if result["user"].created_at else datetime.utcnow().isoformat(),
+        }
         
         return {
             "message": "SPA registrado exitosamente",
-            "tenant": tenant_response,
-            "user": user_response,
+            "tenant": tenant_dict,
+            "user": user_dict,
             "access_token": tokens["access_token"],
             "refresh_token": tokens["refresh_token"],
             "token_type": "bearer",
         }
     
     except ValueError as e:
+        logger.error(f"Error en registro: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -148,23 +214,43 @@ def refresh(
 ):
     """
     Refresca los tokens de autenticación.
-    
-    El refresh token tiene una vida más larga que el access token.
     """
     try:
         result = refresh_tokens(db, refresh_token)
+        user = result["user"]
         
-        tenant_response = None
-        if result["user"].tenant:
-            tenant_response = TenantResponse.model_validate(result["user"].tenant)
+        user_dict = {
+            "id": str(user.id),
+            "username": user.username,
+            "email": user.email,
+            "nombre": user.nombre,
+            "apellido": user.apellido,
+            "rol": user.rol,
+            "activo": getattr(user, 'is_active', True),
+            "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+            "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
+        }
         
-        return TokenResponse(
-            access_token=result["access_token"],
-            refresh_token=result["refresh_token"],
-            token_type=result["token_type"],
-            user=UserResponse.model_validate(result["user"]),
-            tenant=tenant_response,
-        )
+        tenant_dict = None
+        if hasattr(user, 'tenant') and user.tenant:
+            tenant_dict = {
+                "id": str(user.tenant.id),
+                "nombre": user.tenant.nombre,
+                "subdominio": user.tenant.subdominio,
+                "plan": user.tenant.plan if hasattr(user.tenant, 'plan') else "basic",
+                "activo": getattr(user.tenant, 'is_active', True) if hasattr(user.tenant, 'is_active') else True,
+                "fecha_creacion": user.tenant.created_at.isoformat() if hasattr(user.tenant, 'created_at') and user.tenant.created_at else datetime.utcnow().isoformat(),
+                "limite_usuarios": user.tenant.limite_usuarios if hasattr(user.tenant, 'limite_usuarios') else 10,
+                "limite_pacientes": user.tenant.limite_pacientes if hasattr(user.tenant, 'limite_pacientes') else 100,
+            }
+        
+        return {
+            "access_token": result["access_token"],
+            "refresh_token": result["refresh_token"],
+            "token_type": result["token_type"],
+            "user": user_dict,
+            "tenant": tenant_dict,
+        }
     
     except ValueError as e:
         raise HTTPException(
@@ -186,7 +272,17 @@ def refresh(
 )
 def get_me(current_user: User = Depends(get_current_user)):
     """Obtiene los datos del usuario actualmente autenticado."""
-    return UserResponse.model_validate(current_user)
+    return {
+        "id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "nombre": current_user.nombre,
+        "apellido": current_user.apellido,
+        "rol": current_user.rol,
+        "activo": getattr(current_user, 'is_active', True),
+        "tenant_id": str(current_user.tenant_id) if current_user.tenant_id else None,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else datetime.utcnow().isoformat(),
+    }
 
 
 # ============================================================
@@ -242,16 +338,11 @@ def change_password(
 def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
     """
     Inicia el proceso de recuperación de contraseña.
-    
-    En producción, esto enviaría un email con un token de recuperación.
-    Por ahora solo verifica que el email exista.
     """
     user = get_user_by_email(db, data.email)
     
-    # Siempre retornar éxito para no revelar si el email existe
-    # (seguridad: no dar información a atacantes)
+    # Siempre retornar éxito para no revelar si el email existe (seguridad)
     if user:
-        # TODO: Enviar email con token de recuperación
         logger.info(f"Solicitud de recuperación de contraseña para: {data.email}")
     
     return {
@@ -271,11 +362,8 @@ def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
 def reset_password(data: ResetPassword, db: Session = Depends(get_db)):
     """
     Restablece la contraseña usando un token de recuperación.
-    
-    El token se obtiene del email de recuperación.
     """
     # TODO: Implementar validación del token de recuperación
-    # Por ahora retornar mensaje informativo
     return {
         "message": "Funcionalidad de restablecimiento de contraseña en desarrollo"
     }
@@ -293,8 +381,6 @@ def reset_password(data: ResetPassword, db: Session = Depends(get_db)):
 def logout(current_user: User = Depends(get_current_user)):
     """
     Cierra la sesión del usuario.
-    
-    En una implementación completa, se agregaría el token a una blacklist en Redis.
     """
     logger.info(f"Logout: {current_user.email}")
     

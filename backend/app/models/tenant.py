@@ -33,12 +33,11 @@ class Tenant(Base, BaseMixin):
         nullable=False,
         comment="Nombre del SPA",
     )
-    subdominio: Mapped[str] = mapped_column(
+    subdominio: Mapped[Optional[str]] = mapped_column(
         String(100),
-        unique=True,
-        nullable=False,
+        nullable=True,
         index=True,
-        comment="Subdominio único para el tenant (ej: 'demo' -> demo.spasystem.com)",
+        comment="Subdominio opcional. Ya NO se usa para enrutamiento (login universal por email). Se auto-genera si está vacío.",
     )
     plan: Mapped[str] = mapped_column(
         String(50),
@@ -131,6 +130,7 @@ class Tenant(Base, BaseMixin):
     usuarios: Mapped[List["User"]] = relationship(
         "User",
         back_populates="tenant",
+        foreign_keys="[User.tenant_id]",
         lazy="selectin",
         cascade="all, delete-orphan",
     )

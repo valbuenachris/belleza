@@ -15,10 +15,10 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
 from .config import settings
-from .database import init_db, check_connection
+from .database import init_db, check_connection, get_connection_info
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
-from .routers import auth, tenants
+from .routers import auth, tenants, patients, appointments, services, users
 
 # ============================================================
 # Configuración de logging
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logger.info(f"🚀 Iniciando {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"📡 Entorno: {settings.ENVIRONMENT}")
     logger.info(f"🐳 Docker: {settings.is_docker}")
+    logger.info(f"🗄️ Base de datos: {get_connection_info()}")
     
     # Inicializar base de datos con reintentos
     # (importante en Docker donde MySQL puede tardar en estar listo)
@@ -105,19 +106,37 @@ app = FastAPI(
         "Incluye el token en el header: `Authorization: Bearer <token>`"
     ),
     version=settings.APP_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # La documentación interactiva se deshabilita en producción
+    # (ver settings.ENABLE_DOCS / settings.docs_available)
+    docs_url="/docs" if settings.docs_available else None,
+    redoc_url="/redoc" if settings.docs_available else None,
+    openapi_url="/openapi.json" if settings.docs_available else None,
     lifespan=lifespan,
 )
 
 
 # ============================================================
-# Middleware - CORS
+# Middleware - En orden de ejecución (LIFO de Starlette)
 # ============================================================
+#
+# Cada add_middleware() envuelve la aplicación previa, así que el
+# ÚLTIMO middleware agregado se ejecuta PRIMERO (el más externo).
+#
+# Orden deseado de ejecución:
+#   1. CORSMiddleware        -> maneja preflight OPTIONS primero
+#   2. AuthMiddleware        -> decodifica y valida el JWT (una sola vez)
+#   3. TenantMiddleware      -> valida el tenant usando request.state
+#
+# Para lograrlo se registran en orden inverso: Tenant, Auth, CORS.
 
+app.add_middleware(TenantMiddleware)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
+    # Orígenes explícitos y configurables (nunca "*" con credentials)
     allow_origins=settings.cors_origins_list,
+    # Permite localhost/127.0.0.1 en cualquier puerto (dev / acceso local)
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,20 +145,15 @@ app.add_middleware(
 
 
 # ============================================================
-# Middleware - Autenticación y Tenant (en orden de ejecución)
-# ============================================================
-
-# Primero Auth (verifica token), luego Tenant (verifica tenant_id)
-app.add_middleware(AuthMiddleware)
-app.add_middleware(TenantMiddleware)
-
-
-# ============================================================
 # Incluir routers
 # ============================================================
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(tenants.router, prefix=settings.API_PREFIX)
+app.include_router(patients.router, prefix=settings.API_PREFIX)
+app.include_router(appointments.router, prefix=settings.API_PREFIX)
+app.include_router(services.router, prefix=settings.API_PREFIX)
+app.include_router(users.router, prefix=settings.API_PREFIX)
 
 
 # ============================================================
@@ -226,7 +240,7 @@ async def root():
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
-        "docs_url": "/docs",
+        "docs_url": "/docs" if settings.docs_available else None,
         "api_prefix": settings.API_PREFIX,
         "status": "running",
     }

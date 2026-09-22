@@ -1,169 +1,49 @@
-// ============================================================
-// frontend/js/api.js - Cliente API
-// Maneja todas las llamadas al backend FastAPI
-// ============================================================
+// API Client - Minimalist version
+var API_BASE = 'http://15.204.10.78:8000/api/v1';
 
-/**
- * Cliente API para comunicarse con el backend.
- * Incluye manejo automático de tokens, refresh, y errores.
- */
-class ApiClient {
-    constructor() {
-        // URL base relativa (Nginx hace de reverse proxy)
-        this.baseURL = '/api/v1';
-        this.timeout = 30000; // 30 segundos
-    }
-
-    /**
-     * Obtiene el token de acceso actual desde localStorage.
-     */
-    getToken() {
-        return localStorage.getItem('spa_access_token');
-    }
-
-    /**
-     * Construye los headers para cada request.
-     */
-    getHeaders(includeAuth = true) {
-        const headers = {
+var API = {
+    getToken: function() {
+        return localStorage.getItem('access_token');
+    },
+    getHeaders: function() {
+        var token = this.getToken();
+        return {
             'Content-Type': 'application/json',
+            'Authorization': token ? 'Bearer ' + token : ''
         };
-
-        if (includeAuth) {
-            const token = this.getToken();
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-        }
-
-        return headers;
-    }
-
-    /**
-     * Realiza un request HTTP genérico.
-     */
-    async request(method, endpoint, data = null, includeAuth = true) {
-        const url = `${this.baseURL}${endpoint}`;
-        const options = {
-            method,
-            headers: this.getHeaders(includeAuth),
+    },
+    request: function(url, method, body) {
+        var options = {
+            method: method || 'GET',
+            headers: this.getHeaders()
         };
-
-        if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-            options.body = JSON.stringify(data);
+        if (body && (method === 'POST' || method === 'PUT')) {
+            options.body = JSON.stringify(body);
         }
-
-        // Crear AbortController para timeout
-        const controller = new AbortController();
-        options.signal = controller.signal;
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-        try {
-            const response = await fetch(url, options);
-            clearTimeout(timeoutId);
-
-            // Manejar respuesta
-            const responseData = await response.json().catch(() => null);
-
+        return fetch(API_BASE + url, options).then(function(response) {
             if (!response.ok) {
-                // Token expirado - intentar refresh
-                if (response.status === 401 && includeAuth) {
-                    const refreshed = await this.tryRefreshToken();
-                    if (refreshed) {
-                        // Reintentar el request original
-                        return this.request(method, endpoint, data, includeAuth);
-                    } else {
-                        // No se pudo refrescar - redirigir a login
-                        window.location.href = 'login.html';
-                        throw new Error('Sesión expirada. Inicia sesión nuevamente.');
-                    }
-                }
-
-                // Otros errores
-                const errorMessage = responseData?.detail || `Error ${response.status}`;
-                throw new Error(errorMessage);
+                return response.json().then(function(err) { throw new Error(err.detail || 'HTTP ' + response.status); });
             }
-
-            return responseData;
-        } catch (error) {
-            clearTimeout(timeoutId);
-
-            if (error.name === 'AbortError') {
-                throw new Error('La solicitud tardó demasiado. Intenta de nuevo.');
-            }
-
-            if (error.message.includes('Failed to fetch')) {
-                throw new Error('No se pudo conectar con el servidor. Verifica tu conexión.');
-            }
-
-            throw error;
-        }
+            return response.json();
+        });
+    },
+    get: function(url) { return this.request(url, 'GET'); },
+    post: function(url, data) { return this.request(url, 'POST', data); },
+    put: function(url, data) { return this.request(url, 'PUT', data); },
+    'delete': function(url) { return this.request(url, 'DELETE'); },
+    patients: {
+        list: function(s) { return API.get('/patients' + (s ? '?search=' + encodeURIComponent(s) : '')); },
+        create: function(d) { return API.post('/patients', d); },
+        'delete': function(id) { return API['delete']('/patients/' + id); }
+    },
+    appointments: {
+        list: function(f, e) { return API.get('/appointments?fecha=' + (f||'') + '&estado=' + (e||'')); },
+        create: function(d) { return API.post('/appointments', d); },
+        'delete': function(id) { return API['delete']('/appointments/' + id); },
+        stats: function() { return API.get('/appointments/stats/summary'); }
     }
+};
 
-    /**
-     * Intenta refrescar el token de acceso.
-     */
-    async tryRefreshToken() {
-        const refreshToken = localStorage.getItem('spa_refresh_token');
-        if (!refreshToken) return false;
-
-        try {
-            const response = await fetch(`${this.baseURL}/auth/refresh`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: refreshToken }),
-            });
-
-            if (!response.ok) return false;
-
-            const data = await response.json();
-            localStorage.setItem('spa_access_token', data.access_token);
-            localStorage.setItem('spa_refresh_token', data.refresh_token);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    // ============================================================
-    // Métodos HTTP específicos
-    // ============================================================
-
-    /**
-     * Request GET
-     */
-    async get(endpoint, includeAuth = true) {
-        return this.request('GET', endpoint, null, includeAuth);
-    }
-
-    /**
-     * Request POST
-     */
-    async post(endpoint, data = null, includeAuth = true) {
-        return this.request('POST', endpoint, data, includeAuth);
-    }
-
-    /**
-     * Request PUT
-     */
-    async put(endpoint, data = null, includeAuth = true) {
-        return this.request('PUT', endpoint, data, includeAuth);
-    }
-
-    /**
-     * Request DELETE
-     */
-    async delete(endpoint, includeAuth = true) {
-        return this.request('DELETE', endpoint, null, includeAuth);
-    }
-
-    /**
-     * Request PATCH
-     */
-    async patch(endpoint, data = null, includeAuth = true) {
-        return this.request('PATCH', endpoint, data, includeAuth);
-    }
-}
-
-// Instancia global del cliente API
-const api = new ApiClient();
+// Alias para compatibilidad
+var api = API;
+console.log('API loaded successfully from', API_BASE);

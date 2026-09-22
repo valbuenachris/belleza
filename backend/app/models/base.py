@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Any, Dict
 
-from sqlalchemy import String, Boolean, DateTime, Index
+from sqlalchemy import String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import CHAR
 
@@ -105,10 +105,10 @@ class TenantBaseModel(BaseMixin):
     
     __abstract__ = True
     
-    # Índice compuesto para optimizar queries por tenant
-    __table_args__ = (
-        Index("idx_tenant_active", "tenant_id", "is_active"),
-    )
+    # NOTA: los índices compuestos (p.ej. idx_tenant_active) se definen en
+    # cada clase concreta vía __table_args__, porque SQLAlchemy reutiliza
+    # las instancias de Index de un mixin abstracto y eso provoca conflictos
+    # ("Index is against table X") cuando varias tablas lo comparten.
 
 
 # Clase Base re-exportada para compatibilidad

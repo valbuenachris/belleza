@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pacientes - SPA Manager</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+</head>
+<body>
+    <div id="app" class="app-layout">
+        <!-- Sidebar se inyecta dinámicamente -->
+        <div id="sidebar-container"></div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <button class="menu-toggle" id="menuToggle" aria-label="Abrir menú">☰</button>
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" placeholder="Buscar..." aria-label="Buscar">
+                </div>
+                <div class="header-actions">
+                    <button class="notification-btn" aria-label="Notificaciones">
+                        🔔
+                        <span class="notification-badge">3</span>
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Page Content -->
+            <main class="page-content">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <div>
+                        <h1 class="page-title">Pacientes</h1>
+                        <p class="page-subtitle">Gestiona la base de datos de pacientes</p>
+                    </div>
+                    <button class="btn btn-primary" id="btnNewPatient">+ Nuevo Paciente</button>
+                </div>
+                
+                <!-- Search and Filter -->
+                <div class="filter-bar">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon"></span>
+                        <input type="text" class="search-input" id="searchPatients" placeholder="Buscar por nombre, email o teléfono...">
+                    </div>
+                    <select class="form-select" id="filterGender">
+                        <option value="">Todos los géneros</option>
+                        <option value="female">Femenino</option>
+                        <option value="male">Masculino</option>
+                        <option value="other">Otro</option>
+                    </select>
+                </div>
+                
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Total Pacientes</p>
+                            <p class="stat-value" id="statTotal">142</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Nuevos este Mes</p>
+                            <p class="stat-value" id="statNew">18</p>
+                            <p class="stat-change positive"> +8% vs mes anterior</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Citas Pendientes</p>
+                            <p class="stat-value" id="statPending">23</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-content">
+                            <p class="stat-label">Pacientes Activos</p>
+                            <p class="stat-value" id="statActive">127</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Patients Grid -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Lista de Pacientes</h3>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>PACIENTE</th>
+                                    <th>CONTACTO</th>
+                                    <th>ÚLTIMA CITA</th>
+                                    <th>CITAS TOTALES</th>
+                                    <th>ESTADO</th>
+                                    <th>ACCIONES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="patientsTableBody">
+                                <!-- Se genera dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Modal Nuevo Paciente -->
+    <div class="modal-overlay" id="newPatientModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Nuevo Paciente</h2>
+                <p>Registra un nuevo paciente</p>
+            </div>
+            <div class="modal-body">
+                <form id="newPatientForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Nombre *</label>
+                            <input type="text" id="patientNombre" required placeholder="María">
+                        </div>
+                        <div class="form-group">
+                            <label>Apellido *</label>
+                            <input type="text" id="patientApellido" required placeholder="González">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="patientEmail" placeholder="maria@email.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Teléfono *</label>
+                            <input type="tel" id="patientPhone" required placeholder="+57 300 123 4567">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Fecha de Nacimiento</label>
+                            <input type="date" id="patientBirthdate">
+                        </div>
+                        <div class="form-group">
+                            <label>Género</label>
+                            <select id="patientGender" class="form-select">
+                                <option value="">Seleccionar...</option>
+                                <option value="female">Femenino</option>
+                                <option value="male">Masculino</option>
+                                <option value="other">Otro</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Dirección</label>
+                        <input type="text" id="patientAddress" placeholder="Calle 100 #15-20, Ciudad">
+                    </div>
+                    <div class="form-group">
+                        <label>Notas Médicas</label>
+                        <textarea id="patientNotes" rows="3" placeholder="Alergias, condiciones especiales..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelPatient">Cancelar</button>
+                <button class="btn btn-primary" id="savePatient">Guardar Paciente</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="js/patients.js"></script>
+</body>
+</html>

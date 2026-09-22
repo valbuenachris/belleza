@@ -1,9 +1,7 @@
 # ============================================================
 # docker-compose.prod.yml - Override para producción
-# Uso: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
 # ============================================================
-
-version: '3.8'
 
 services:
   backend:
@@ -90,8 +88,3 @@ services:
         max-size: "5m"
         max-file: "3"
     restart: always
-
-  # phpMyAdmin NO se levanta en producción
-  phpmyadmin:
-    profiles:
-      - disabled

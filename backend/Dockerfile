@@ -53,6 +53,14 @@ COPY --chown=appuser:appuser ./app ./app
 # Copiar configuración de Alembic para migraciones
 COPY --chown=appuser:appuser ./alembic.ini ./
 
+# Copiar el directorio de migraciones de Alembic
+COPY --chown=appuser:appuser ./alembic ./alembic
+
+# Copiar entrypoint (espera DB, ejecuta migraciones)
+COPY --chown=appuser:appuser ./entrypoint.sh ./entrypoint.sh
+
+RUN chmod +x /app/entrypoint.sh
+
 # Variables de entorno para optimización de Python
 # PYTHONUNBUFFERED=1 - No buffer en stdout/stderr (importante para Docker logs)
 # PYTHONDONTWRITEBYTECODE=1 - No generar archivos .pyc
@@ -71,6 +79,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Ejecutar como usuario no-root (seguridad)
 USER appuser
+
+# Entrypoint: espera MySQL, aplica/sella migraciones y ejecuta el CMD
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Comando de producción con Gunicorn + Uvicorn workers
 # -w 4: 4 workers (ajustar según CPU disponible)

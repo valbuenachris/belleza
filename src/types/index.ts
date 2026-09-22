@@ -5,7 +5,8 @@
 export interface Tenant {
   id: string;
   nombre: string;
-  subdominio: string;
+  /** Subdominio opcional (ya no se usa para enrutamiento; login universal por email) */
+  subdominio?: string;
   plan: 'basic' | 'professional' | 'enterprise';
   activo: boolean;
   fecha_creacion: string;
@@ -35,6 +36,7 @@ export interface TenantStats {
   total_usuarios: number;
   total_pacientes: number;
   total_citas_hoy: number;
+  total_ingresos_hoy: number;
   total_ingresos_mes: number;
   citas_semana: number[];
   ingresos_mes: number[];
@@ -42,7 +44,7 @@ export interface TenantStats {
 
 export interface User {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
   username: string;
   email: string;
   nombre: string;
@@ -62,8 +64,17 @@ export interface UserCreate {
   password: string;
   nombre: string;
   apellido: string;
-  rol: User['rol'];
-  tenant_id?: string;
+  rol: Exclude<User['rol'], 'superadmin'>;
+  telefono?: string | null;
+}
+
+export interface UserUpdate {
+  nombre?: string;
+  apellido?: string;
+  telefono?: string | null;
+  rol?: Exclude<User['rol'], 'superadmin'>;
+  activo?: boolean;
+  password?: string;
 }
 
 export interface LoginCredentials {
@@ -77,6 +88,140 @@ export interface TokenResponse {
   token_type: string;
   user: User;
   tenant: Tenant | null;
+}
+
+// ============================================================
+// Pacientes
+// ============================================================
+
+export interface Patient {
+  id: string;
+  tenant_id: string;
+  nombre: string;
+  apellido: string;
+  email: string | null;
+  telefono: string | null;
+  fecha_nacimiento: string | null;
+  genero: string | null;
+  direccion: string | null;
+  notas_medicas: string | null;
+  activo: boolean;
+  created_at: string | null;
+  total_citas?: number;
+  ultima_cita?: string | null;
+}
+
+export interface PatientCreateInput {
+  nombre: string;
+  apellido: string;
+  email?: string | null;
+  telefono?: string | null;
+  fecha_nacimiento?: string | null;
+  genero?: string | null;
+  direccion?: string | null;
+  notas_medicas?: string | null;
+}
+
+export interface PatientsResponse {
+  patients: Patient[];
+  total: number;
+}
+
+// ============================================================
+// Servicios
+// ============================================================
+
+export interface Service {
+  id: string;
+  tenant_id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
+  duracion: number;
+  activo: boolean;
+  created_at: string | null;
+}
+
+export interface ServiceCreateInput {
+  nombre: string;
+  descripcion?: string | null;
+  precio: number;
+  duracion: number;
+}
+
+export interface ServicesResponse {
+  services: Service[];
+  total: number;
+}
+
+// ============================================================
+// Citas
+// ============================================================
+
+export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+
+export interface Appointment {
+  id: string;
+  tenant_id: string;
+  patient_id: string;
+  therapist_id: string;
+  service_id: string;
+  date_time: string | null;
+  fecha: string | null;
+  hora_inicio: string | null;
+  time: string | null;
+  duracion: number;
+  estado: string;
+  precio: number | null;
+  total_precio: number | null;
+  notas: string | null;
+  patient: string;
+  service: string;
+  therapist: string;
+  created_at: string | null;
+}
+
+export interface AppointmentCreateInput {
+  patient_id: string;
+  therapist_id: string;
+  service_id: string;
+  date_time: string;
+  duracion?: number;
+  estado?: string;
+  precio?: number;
+  notas?: string;
+}
+
+export interface AppointmentUpdateInput {
+  patient_id?: string;
+  therapist_id?: string;
+  service_id?: string;
+  date_time?: string;
+  duracion?: number;
+  estado?: string;
+  precio?: number;
+  notas?: string;
+}
+
+export interface AppointmentsResponse {
+  appointments: Appointment[];
+  total: number;
+}
+
+export interface AppointmentSummary {
+  total_citas_hoy: number;
+  pendientes: number;
+  confirmadas: number;
+  ingresos_hoy: number;
+}
+
+// ============================================================
+// Respuestas paginadas de usuarios
+// ============================================================
+
+export interface UsersResponse {
+  users: User[];
+  total: number;
 }
 
 export interface Toast {
