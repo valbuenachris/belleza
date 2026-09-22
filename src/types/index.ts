@@ -42,6 +42,15 @@ export interface TenantStats {
   ingresos_mes: number[];
 }
 
+export interface GlobalTenantStats {
+  total_spas: number;
+  activos: number;
+  inactivos: number;
+  total_usuarios_globales: number;
+  mrr_estimado: number;
+  distribucion_planes: Record<string, number>;
+}
+
 export interface User {
   id: string;
   tenant_id: string | null;

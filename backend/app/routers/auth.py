@@ -114,6 +114,19 @@ def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tu cuenta ha sido desactivada. Contacta al administrador.",
         )
+
+    # 2.5. Verificar que el SPA (tenant) del usuario no esté suspendido.
+    #      El superadmin no depende de ningún tenant, por lo que no aplica.
+    if user.rol != "superadmin":
+        tenant = getattr(user, "tenant", None)
+        if tenant is not None and not getattr(tenant, "is_active", True):
+            logger.warning(
+                f"Login bloqueado: SPA suspendido para {credentials.email}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu centro de SPA se encuentra suspendido. Por favor contacta al administrador del sistema.",
+            )
     
     # 3. Generar tokens
     #    El access_token y refresh_token incluyen el claim 'tenant_id'

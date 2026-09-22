@@ -20,6 +20,7 @@ from ..services.tenant_service import (
     update_tenant,
     delete_tenant,
     get_tenant_stats,
+    get_global_stats,
 )
 from ..dependencies import get_superadmin, get_current_active_user, require_role
 from ..models.user import User
@@ -120,6 +121,27 @@ def get_tenants_count(
     """Retorna el conteo total de tenants."""
     total = count_tenants(db, plan=plan, activo=activo)
     return {"total": total}
+
+
+# ============================================================
+# GET /api/v1/tenants/stats/global - Métricas globales
+# ============================================================
+
+@router.get(
+    "/stats/global",
+    summary="Métricas globales de la plataforma",
+    description=(
+        "KPIs globales para el superadmin: total de SPAs (activos y "
+        "suspendidos), usuarios globales, MRR estimado y distribución "
+        "por plan de suscripción."
+    ),
+)
+def get_tenants_global_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_superadmin),
+):
+    """Retorna las métricas globales de la plataforma (solo superadmin)."""
+    return get_global_stats(db)
 
 
 # ============================================================

@@ -4,15 +4,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, ApiError } from '../services/api';
-import { Tenant } from '../types';
+import { Tenant, GlobalTenantStats } from '../types';
 import {
   Building2, Plus, Search, MoreVertical, Edit, Trash2,
   CheckCircle, XCircle, Users, ArrowUpDown, AlertCircle,
-  Lock, Mail, User, Check, Copy, Download, KeyRound
+  Lock, Mail, User, Check, Copy, Download, KeyRound,
+  DollarSign, PauseCircle, PlayCircle, Layers
 } from 'lucide-react';
 
 export default function TenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [globalStats, setGlobalStats] = useState<GlobalTenantStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,6 +37,12 @@ export default function TenantsPage() {
     } finally {
       setLoading(false);
     }
+    try {
+      const stats = await api.getTenantGlobalStats();
+      setGlobalStats(stats);
+    } catch {
+      // Métricas globales no disponibles
+    }
   };
 
   const handleDelete = async (tenant: Tenant) => {
@@ -48,6 +56,24 @@ export default function TenantsPage() {
     }
   };
 
+  const handleToggleActive = async (tenant: Tenant) => {
+    const suspender = tenant.activo;
+    const ok = confirm(
+      suspender
+        ? `¿Suspender el SPA "${tenant.nombre}"? Sus usuarios no podrán iniciar sesión hasta que lo reactives.`
+        : `¿Reactivar el SPA "${tenant.nombre}"? Sus usuarios volverán a tener acceso.`
+    );
+    if (!ok) return;
+    setError('');
+    try {
+      await api.updateTenant(tenant.id, { activo: !tenant.activo });
+      setSelectedTenant(null);
+      await loadTenants();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al actualizar el estado del SPA');
+    }
+  };
+
   const filteredTenants = tenants.filter(t =>
     t.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -57,6 +83,20 @@ export default function TenantsPage() {
     professional: 'bg-emerald-50 text-emerald-700',
     enterprise: 'bg-violet-50 text-violet-700',
   };
+  const planLabels: Record<string, string> = {
+    basic: 'Basic',
+    professional: 'Professional',
+    enterprise: 'Enterprise',
+  };
+  const planBarColors: Record<string, string> = {
+    basic: 'bg-stone-400',
+    professional: 'bg-emerald-500',
+    enterprise: 'bg-violet-500',
+  };
+
+  const mrr = globalStats?.mrr_estimado ?? 0;
+  const distribucion = globalStats?.distribucion_planes || {};
+  const totalPorPlan = Object.keys(planLabels).reduce((s, p) => s + (distribucion[p] || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -101,19 +141,77 @@ export default function TenantsPage() {
         </button>
       </div>
 
-      {/* Stats summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-stone-100">
-          <p className="text-sm text-stone-500">Total Tenants</p>
-          <p className="text-2xl font-bold text-stone-800">{tenants.length}</p>
+      {/* KPIs globales de la plataforma */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-stone-500">Total SPAs</p>
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <Building2 size={18} className="text-emerald-600" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-stone-800 mt-2">{globalStats?.total_spas ?? 0}</p>
+          <p className="text-xs text-stone-500 mt-1">
+            <span className="text-emerald-600 font-medium">{globalStats?.activos ?? 0} activos</span>
+            {' · '}
+            <span className="text-red-500 font-medium">{globalStats?.inactivos ?? 0} suspendidos</span>
+          </p>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-stone-100">
-          <p className="text-sm text-stone-500">Activos</p>
-          <p className="text-2xl font-bold text-emerald-600">{tenants.filter(t => t.activo).length}</p>
+
+        <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-stone-500">Usuarios Globales</p>
+            <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center">
+              <Users size={18} className="text-teal-600" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-stone-800 mt-2">{globalStats?.total_usuarios_globales ?? 0}</p>
+          <p className="text-xs text-stone-500 mt-1">en toda la plataforma</p>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-stone-100">
-          <p className="text-sm text-stone-500">Plan Enterprise</p>
-          <p className="text-2xl font-bold text-violet-600">{tenants.filter(t => t.plan === 'enterprise').length}</p>
+
+        <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-stone-500">MRR Estimado</p>
+            <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center">
+              <DollarSign size={18} className="text-violet-600" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-stone-800 mt-2">
+            ${mrr.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+          </p>
+          <p className="text-xs text-stone-500 mt-1">ingresos recurrentes / mes (SPAs activos)</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-stone-500">Distribución por Planes</p>
+            <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+              <Layers size={18} className="text-amber-600" />
+            </div>
+          </div>
+          <div className="flex h-2.5 rounded-full overflow-hidden bg-stone-100 mt-3">
+            {Object.keys(planLabels).map(p => (
+              <div
+                key={p}
+                className={`${planBarColors[p]} transition-all`}
+                style={{ width: totalPorPlan ? `${((distribucion[p] || 0) / totalPorPlan) * 100}%` : '0%' }}
+              />
+            ))}
+          </div>
+          <div className="flex flex-col gap-1 mt-3">
+            {Object.keys(planLabels).map(p => (
+              <div key={p} className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5 text-stone-600">
+                  <span className={`w-2 h-2 rounded-full ${planBarColors[p]}`} />
+                  {planLabels[p]}
+                </span>
+                <span className="font-medium text-stone-800">
+                  {distribucion[p] || 0}
+                  {totalPorPlan ? ` (${Math.round(((distribucion[p] || 0) / totalPorPlan) * 100)}%)` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -171,7 +269,7 @@ export default function TenantsPage() {
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-500">
-                          <XCircle size={14} /> Inactivo
+                          <XCircle size={14} /> Suspendido
                         </span>
                       )}
                     </td>
@@ -190,6 +288,17 @@ export default function TenantsPage() {
                           title="Editar"
                         >
                           <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(tenant)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            tenant.activo
+                              ? 'hover:bg-amber-50 text-stone-400 hover:text-amber-600'
+                              : 'hover:bg-emerald-50 text-stone-400 hover:text-emerald-600'
+                          }`}
+                          title={tenant.activo ? 'Suspender SPA' : 'Reactivar SPA'}
+                        >
+                          {tenant.activo ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                         </button>
                         <button
                           onClick={() => handleDelete(tenant)}
@@ -684,7 +793,7 @@ function TenantDetailModal({ tenant, onClose }: { tenant: Tenant; onClose: () =>
             <div>
               <p className="text-xs text-stone-500 uppercase tracking-wider">Estado</p>
               <p className={`text-sm font-medium mt-0.5 ${tenant.activo ? 'text-emerald-600' : 'text-red-500'}`}>
-                {tenant.activo ? 'Activo' : 'Inactivo'}
+                {tenant.activo ? 'Activo' : 'Suspendido'}
               </p>
             </div>
             <div>

@@ -24,7 +24,7 @@ from ..utils.security import (
 )
 from ..utils.validators import validate_email
 from ..config import settings
-from .tenant_service import generate_subdomain
+from .tenant_service import generate_subdomain, resolve_plan_limits
 
 logger = logging.getLogger(__name__)
 
@@ -169,14 +169,24 @@ def register_tenant(
         # si se omite o está en uso, se auto-genera un valor único.
         subdominio = _resolve_subdomain(db, tenant_data.subdominio, tenant_data.nombre)
         
+        # Límites por defecto según el plan (si no se proporcionaron)
+        fields_set = tenant_data.model_fields_set
+        plan_limits = resolve_plan_limits(
+            tenant_data.plan,
+            tenant_data.limite_usuarios,
+            tenant_data.limite_pacientes,
+            usuarios_explicit="limite_usuarios" in fields_set,
+            pacientes_explicit="limite_pacientes" in fields_set,
+        )
+
         # Crear tenant
         tenant = Tenant(
             id=generate_uuid(),
             nombre=tenant_data.nombre,
             subdominio=subdominio,
             plan=tenant_data.plan,
-            limite_usuarios=tenant_data.limite_usuarios,
-            limite_pacientes=tenant_data.limite_pacientes,
+            limite_usuarios=plan_limits["limite_usuarios"],
+            limite_pacientes=plan_limits["limite_pacientes"],
             email=tenant_data.email,
             telefono=tenant_data.telefono,
             direccion=tenant_data.direccion,

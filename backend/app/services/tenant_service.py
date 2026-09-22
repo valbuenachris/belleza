@@ -17,6 +17,41 @@ from ..utils.security import generate_uuid
 
 logger = logging.getLogger(__name__)
 
+# Límites por defecto según el plan del SPA. Se aplican al crear o al
+# cambiar de plan si no se proporcionan límites explícitos.
+PLAN_LIMITS: Dict[str, Dict[str, int]] = {
+    "basic": {"limite_usuarios": 3, "limite_pacientes": 300},
+    "professional": {"limite_usuarios": 10, "limite_pacientes": 1500},
+    "enterprise": {"limite_usuarios": 50, "limite_pacientes": 10000},
+}
+
+# Precios mensuales por plan (para el cálculo del MRR estimado)
+PLAN_PRECIOS: Dict[str, int] = {
+    "basic": 29,
+    "professional": 79,
+    "enterprise": 199,
+}
+
+
+def resolve_plan_limits(
+    plan: str,
+    limite_usuarios: Optional[int] = None,
+    limite_pacientes: Optional[int] = None,
+    usuarios_explicit: bool = False,
+    pacientes_explicit: bool = False,
+) -> Dict[str, int]:
+    """
+    Resuelve los límites de un tenant según su plan.
+
+    Usa los valores por defecto del plan solo cuando el campo NO fue
+    proporcionado explícitamente por el caller.
+    """
+    defaults = PLAN_LIMITS.get(plan, {"limite_usuarios": 10, "limite_pacientes": 1000})
+    return {
+        "limite_usuarios": limite_usuarios if usuarios_explicit else defaults["limite_usuarios"],
+        "limite_pacientes": limite_pacientes if pacientes_explicit else defaults["limite_pacientes"],
+    }
+
 
 def _build_unique_username(db: Session, tenant_id: str, email: str) -> str:
     """
@@ -113,13 +148,23 @@ def create_tenant(db: Session, tenant_data: TenantCreate) -> Tenant:
                 "Ya existe un usuario con este correo electrónico"
             )
 
+    # Límites por defecto según el plan (si no se proporcionaron explícitamente)
+    fields_set = tenant_data.model_fields_set
+    plan_limits = resolve_plan_limits(
+        tenant_data.plan,
+        tenant_data.limite_usuarios,
+        tenant_data.limite_pacientes,
+        usuarios_explicit="limite_usuarios" in fields_set,
+        pacientes_explicit="limite_pacientes" in fields_set,
+    )
+
     tenant = Tenant(
         id=generate_uuid(),
         nombre=tenant_data.nombre,
         subdominio=subdominio,
         plan=tenant_data.plan,
-        limite_usuarios=tenant_data.limite_usuarios,
-        limite_pacientes=tenant_data.limite_pacientes,
+        limite_usuarios=plan_limits["limite_usuarios"],
+        limite_pacientes=plan_limits["limite_pacientes"],
         email=tenant_data.email,
         telefono=tenant_data.telefono,
         direccion=tenant_data.direccion,
@@ -268,6 +313,16 @@ def update_tenant(db: Session, tenant_id: str, tenant_data: TenantUpdate) -> Opt
     if "activo" in update_data:
         update_data["is_active"] = update_data.pop("activo")
 
+    # Al cambiar de plan, aplicar los límites por defecto del nuevo plan
+    # solo si el usuario no los proporcionó explícitamente.
+    if "plan" in update_data:
+        defaults = PLAN_LIMITS.get(update_data["plan"])
+        if defaults:
+            if "limite_usuarios" not in update_data:
+                update_data["limite_usuarios"] = defaults["limite_usuarios"]
+            if "limite_pacientes" not in update_data:
+                update_data["limite_pacientes"] = defaults["limite_pacientes"]
+
     # Subdominio opcional: si viene vacío no se cambia; si entra en
     # conflicto con otro tenant se auto-genera un alternativo.
     if "subdominio" in update_data:
@@ -375,4 +430,42 @@ def get_tenant_stats(db: Session, tenant_id: str) -> Dict[str, Any]:
     return {
         "total_usuarios": total_usuarios,
         "usuarios_por_rol": usuarios_por_rol,
+    }
+
+
+# ============================================================
+# Estadísticas globales (superadmin)
+# ============================================================
+
+def get_global_stats(db: Session) -> Dict[str, Any]:
+    """
+    Métricas globales de la plataforma para el superadmin:
+    total de SPAs (activos/suspendidos), usuarios globales, MRR estimado
+    y distribución por plan.
+    """
+    tenants = db.query(Tenant).filter(Tenant.deleted_at == None).all()
+
+    total_spas = len(tenants)
+    activos = sum(1 for t in tenants if t.is_active)
+    inactivos = total_spas - activos
+
+    total_usuarios_globales = db.query(func.count(User.id)).filter(
+        User.deleted_at == None,
+    ).scalar() or 0
+
+    mrr_estimado = sum(
+        PLAN_PRECIOS.get(t.plan, 0) for t in tenants if t.is_active
+    )
+
+    distribucion_planes = {plan: 0 for plan in PLAN_PRECIOS}
+    for t in tenants:
+        distribucion_planes[t.plan] = distribucion_planes.get(t.plan, 0) + 1
+
+    return {
+        "total_spas": total_spas,
+        "activos": activos,
+        "inactivos": inactivos,
+        "total_usuarios_globales": total_usuarios_globales,
+        "mrr_estimado": mrr_estimado,
+        "distribucion_planes": distribucion_planes,
     }

@@ -9,6 +9,7 @@ import {
   User,
   TokenResponse,
   TenantStats,
+  GlobalTenantStats,
   Patient,
   PatientCreateInput,
   PatientsResponse,
@@ -417,6 +418,10 @@ export const api = {
       if (err instanceof ApiError && err.status === 404) return null;
       throw err;
     }
+  },
+
+  async getTenantGlobalStats(): Promise<GlobalTenantStats> {
+    return request<GlobalTenantStats>('/tenants/stats/global');
   },
 
   async createTenant(

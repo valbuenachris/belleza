@@ -180,6 +180,8 @@ class TenantListResponse(BaseModel):
     fecha_creacion: datetime
     email: Optional[str] = None
     telefono: Optional[str] = None
+    limite_usuarios: int
+    limite_pacientes: int
 
 
 # ============================================================
