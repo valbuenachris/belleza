@@ -68,7 +68,7 @@ function AppRouter() {
       case 'services':
         return <ServicesPage />;
       case 'patients':
-        return <PatientsPage />;
+        return <PatientsPage onNavigate={setCurrentPage} />;
       case 'settings':
         return <SettingsPage />;
       case 'docs':

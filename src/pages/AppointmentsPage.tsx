@@ -6,8 +6,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, ApiError } from '../services/api';
 import { Appointment, Patient, Service, User } from '../types';
+import { setScheduleListener } from '../services/scheduleRequest';
 import {
-  Calendar, CalendarDays, List, Plus, Trash2, Clock, DollarSign,
+  Calendar, CalendarDays, List, Plus, Clock, DollarSign,
   User as UserIcon, Scissors, AlertCircle, ChevronLeft, ChevronRight, X
 } from 'lucide-react';
 
@@ -87,6 +88,23 @@ function buildMonthGrid(year: number, month: number): Date[] {
 
 type ViewMode = 'table' | 'calendar';
 
+// Acciones rápidas de cambio de estado según el estado actual
+function getNextActions(estado: string): { key: string; label: string; className: string }[] {
+  if (estado === 'pending') {
+    return [
+      { key: 'confirmed', label: 'Confirmar', className: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
+      { key: 'cancelled', label: 'Cancelar', className: 'bg-red-50 text-red-500 hover:bg-red-100' },
+    ];
+  }
+  if (estado === 'confirmed') {
+    return [
+      { key: 'completed', label: 'Completar', className: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+      { key: 'cancelled', label: 'Cancelar', className: 'bg-red-50 text-red-500 hover:bg-red-100' },
+    ];
+  }
+  return [];
+}
+
 export default function AppointmentsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -104,6 +122,8 @@ export default function AppointmentsPage() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState('');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [preselectedPatientId, setPreselectedPatientId] = useState<string | null>(null);
+  const [statusSaving, setStatusSaving] = useState<Record<string, boolean>>({});
 
   const loadAppointments = useCallback(async () => {
     setLoading(true);
@@ -144,17 +164,44 @@ export default function AppointmentsPage() {
     loadCalendar();
   }, [viewMode, loadCalendar]);
 
-  const handleCancel = async (id: string) => {
-    if (!confirm('¿Deseas cancelar esta cita? Se liberará el horario del terapeuta.')) return;
+  // Escuchar solicitudes de "Agendar Cita" desde la Ficha del Paciente
+  useEffect(() => {
+    setScheduleListener((patientId) => {
+      setPreselectedPatientId(patientId);
+      setCreateInitialDate(todayStr());
+      setShowCreateModal(true);
+    });
+    return () => setScheduleListener(null);
+  }, []);
+
+  const applyLocalEstado = useCallback((id: string, estado: string) => {
+    setAppointments((list) => list.map((a) => (a.id === id ? { ...a, estado } : a)));
+    setMonthAppointments((list) => list.map((a) => (a.id === id ? { ...a, estado } : a)));
+  }, []);
+
+  // Cambio de estado con actualización optimista de la UI
+  const changeStatus = useCallback(async (id: string, estado: string) => {
+    if (statusSaving[id]) return;
+    const prev =
+      monthAppointments.find((a) => a.id === id)?.estado ??
+      appointments.find((a) => a.id === id)?.estado;
+    setStatusSaving((s) => ({ ...s, [id]: true }));
     setError('');
+    setCalendarError('');
+    applyLocalEstado(id, estado);
     try {
-      await api.cancelAppointment(id);
+      await api.updateAppointment(id, { estado });
       loadAppointments();
       loadCalendar();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al cancelar cita');
+      if (prev) applyLocalEstado(id, prev);
+      const msg = err instanceof ApiError ? err.message : 'Error al actualizar el estado de la cita';
+      setError(msg);
+      setCalendarError(msg);
+    } finally {
+      setStatusSaving((s) => ({ ...s, [id]: false }));
     }
-  };
+  }, [statusSaving, monthAppointments, appointments, applyLocalEstado, loadAppointments, loadCalendar]);
 
   const openCreateModal = (initialDate?: string | null) => {
     setCreateInitialDate(initialDate ?? null);
@@ -338,14 +385,20 @@ export default function AppointmentsPage() {
                           <span className="text-sm font-medium text-stone-700">{currency(apt.precio)}</span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          {apt.estado !== 'cancelled' && (
-                            <button
-                              onClick={() => handleCancel(apt.id)}
-                              className="p-2 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
-                              title="Cancelar cita"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                          {statusSaving[apt.id] ? (
+                            <span className="text-xs text-stone-400">Guardando...</span>
+                          ) : (
+                            <div className="flex items-center justify-end gap-1.5">
+                              {getNextActions(apt.estado).map((act) => (
+                                <button
+                                  key={act.key}
+                                  onClick={() => changeStatus(apt.id, act.key)}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${act.className}`}
+                                >
+                                  {act.label}
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -374,9 +427,11 @@ export default function AppointmentsPage() {
       {showCreateModal && (
         <CreateAppointmentModal
           initialDate={createInitialDate || undefined}
-          onClose={() => setShowCreateModal(false)}
+          initialPatientId={preselectedPatientId}
+          onClose={() => { setShowCreateModal(false); setPreselectedPatientId(null); }}
           onCreated={() => {
             setShowCreateModal(false);
+            setPreselectedPatientId(null);
             loadAppointments();
             loadCalendar();
           }}
@@ -393,17 +448,8 @@ export default function AppointmentsPage() {
             setSelectedDay(null);
             openCreateModal(d);
           }}
-          onCancel={async (id) => {
-            if (!confirm('¿Deseas cancelar esta cita? Se liberará el horario del terapeuta.')) return;
-            setCalendarError('');
-            try {
-              await api.cancelAppointment(id);
-              loadCalendar();
-              loadAppointments();
-            } catch (err) {
-              setCalendarError(err instanceof ApiError ? err.message : 'Error al cancelar cita');
-            }
-          }}
+          statusSaving={statusSaving}
+          onStatusChange={(id, estado) => changeStatus(id, estado)}
         />
       )}
     </div>
@@ -572,12 +618,13 @@ function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCoun
 // Modal de resumen del día
 // ============================================================
 
-function DayModal({ dayKey, appointments, onClose, onNewAppointment, onCancel }: {
+function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSaving, onStatusChange }: {
   dayKey: string;
   appointments: Appointment[];
   onClose: () => void;
   onNewAppointment: () => void;
-  onCancel: (id: string) => Promise<void>;
+  statusSaving: Record<string, boolean>;
+  onStatusChange: (id: string, estado: string) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -618,18 +665,24 @@ function DayModal({ dayKey, appointments, onClose, onNewAppointment, onCancel }:
                     <p className="text-sm font-medium text-stone-800 truncate">{a.patient}</p>
                     <p className="text-xs text-stone-500 truncate">{a.service} · {a.therapist}</p>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
+                  <div className="flex flex-col items-end gap-1.5">
                     <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize ${statusColors[a.estado] || 'bg-stone-100 text-stone-600'}`}>
                       {statusLabels[a.estado] || a.estado}
                     </span>
-                    {a.estado !== 'cancelled' && (
-                      <button
-                        onClick={() => onCancel(a.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
-                        title="Cancelar cita"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    {statusSaving[a.id] ? (
+                      <span className="text-[10px] text-stone-400">Guardando...</span>
+                    ) : (
+                      <div className="flex gap-1">
+                        {getNextActions(a.estado).map((act) => (
+                          <button
+                            key={act.key}
+                            onClick={() => onStatusChange(a.id, act.key)}
+                            className={`px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${act.className}`}
+                          >
+                            {act.label}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -661,8 +714,9 @@ function DayModal({ dayKey, appointments, onClose, onNewAppointment, onCancel }:
 // ============================================================
 // Modal de Nueva Cita
 // ============================================================
-function CreateAppointmentModal({ initialDate, onClose, onCreated }: {
+function CreateAppointmentModal({ initialDate, initialPatientId, onClose, onCreated }: {
   initialDate?: string;
+  initialPatientId?: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -672,7 +726,7 @@ function CreateAppointmentModal({ initialDate, onClose, onCreated }: {
   const [metaLoading, setMetaLoading] = useState(true);
 
   const [formData, setFormData] = useState({
-    patientId: '',
+    patientId: initialPatientId || '',
     serviceId: '',
     therapistId: '',
     fecha: initialDate || todayStr(),

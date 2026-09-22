@@ -33,15 +33,18 @@ def list_appointments(
     limit: int = 100,
     fecha: Optional[str] = None,
     estado: Optional[str] = None,
+    patient_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     try:
         appointments = appointment_service.list_appointments(
-            db, tenant_id, skip=skip, limit=limit, fecha=fecha, estado=estado
+            db, tenant_id, skip=skip, limit=limit, fecha=fecha, estado=estado, patient_id=patient_id
         )
-        total = appointment_service.count_appointments(db, tenant_id, fecha=fecha, estado=estado)
+        total = appointment_service.count_appointments(
+            db, tenant_id, fecha=fecha, estado=estado, patient_id=patient_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

@@ -242,10 +242,11 @@ def list_appointments(
     limit: int = 100,
     fecha: Optional[str] = None,
     estado: Optional[str] = None,
+    patient_id: Optional[str] = None,
 ) -> List[Appointment]:
     """
     Lista citas del tenant con filtros opcionales.
-    `fecha` filtra por día (formato YYYY-MM-DD).
+    `fecha` filtra por día (formato YYYY-MM-DD) y `patient_id` por paciente.
     """
     query = db.query(Appointment).filter(
         Appointment.tenant_id == tenant_id,
@@ -265,10 +266,19 @@ def list_appointments(
     if estado:
         query = query.filter(Appointment.estado == estado.lower())
 
+    if patient_id:
+        query = query.filter(Appointment.patient_id == patient_id)
+
     return query.order_by(Appointment.date_time.asc()).offset(skip).limit(limit).all()
 
 
-def count_appointments(db: Session, tenant_id: str, fecha: Optional[str] = None, estado: Optional[str] = None) -> int:
+def count_appointments(
+    db: Session,
+    tenant_id: str,
+    fecha: Optional[str] = None,
+    estado: Optional[str] = None,
+    patient_id: Optional[str] = None,
+) -> int:
     """Cuenta el total de citas con filtros opcionales."""
     query = db.query(func.count(Appointment.id)).filter(
         Appointment.tenant_id == tenant_id,
@@ -285,6 +295,8 @@ def count_appointments(db: Session, tenant_id: str, fecha: Optional[str] = None,
             return 0
     if estado:
         query = query.filter(Appointment.estado == estado.lower())
+    if patient_id:
+        query = query.filter(Appointment.patient_id == patient_id)
     return query.scalar() or 0
 
 
@@ -310,8 +322,13 @@ def update_appointment(
         if body["estado"] not in ESTADOS_CITA:
             raise ValueError(f"Estado inválido. Opciones: {', '.join(ESTADOS_CITA)}")
 
-    # Nueva fecha/hora (soporta fecha+time combinados)
-    date_time = resolve_date_time(body.get("date_time"), body.get("fecha"), body.get("time"))
+    # Nueva fecha/hora: solo se reconstruye si el payload trae date_time o fecha+time.
+    # Una actualización parcial (p. ej. solo estado) no debe exigir horario.
+    if any(k in body for k in ("date_time", "fecha", "time")):
+        date_time = resolve_date_time(body.get("date_time"), body.get("fecha"), body.get("time"))
+        body["date_time"] = date_time
+    else:
+        date_time = appointment.date_time
 
     therapist_id = body.get("therapist_id")
     if not therapist_id and body.get("therapist"):

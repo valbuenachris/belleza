@@ -521,10 +521,11 @@ export const api = {
   // ----------------------------------------------------------
   // Citas
   // ----------------------------------------------------------
-  async getAppointments(params?: { fecha?: string; estado?: string; limit?: number }): Promise<AppointmentsResponse> {
+  async getAppointments(params?: { fecha?: string; estado?: string; patient_id?: string; limit?: number }): Promise<AppointmentsResponse> {
     const query = new URLSearchParams({ limit: String(params?.limit ?? 100) });
     if (params?.fecha) query.set('fecha', params.fecha);
     if (params?.estado) query.set('estado', params.estado);
+    if (params?.patient_id) query.set('patient_id', params.patient_id);
     return request<AppointmentsResponse>(`/appointments?${query.toString()}`);
   },
 

@@ -4,18 +4,21 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../services/api';
-import { Patient } from '../types';
+import { Patient, Appointment, Page } from '../types';
+import { requestScheduleAppointment } from '../services/scheduleRequest';
 import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
-  Calendar, Stethoscope, Users as UsersIcon, Pencil
+  Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
+  X, CalendarPlus, Clock
 } from 'lucide-react';
 
-export default function PatientsPage() {
+export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [viewingPatient, setViewingPatient] = useState<Patient | null>(null);
   const [error, setError] = useState('');
 
   const loadPatients = useCallback(async () => {
@@ -54,6 +57,12 @@ export default function PatientsPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error al eliminar paciente');
     }
+  };
+
+  const handleSchedule = (patientId: string) => {
+    setViewingPatient(null);
+    requestScheduleAppointment(patientId);
+    onNavigate?.('appointments');
   };
 
   return (
@@ -110,7 +119,8 @@ export default function PatientsPage() {
           {filteredPatients.map((patient) => (
             <div
               key={patient.id}
-              className="bg-white rounded-2xl p-6 border border-stone-100 hover:shadow-lg hover:shadow-stone-100 transition-all duration-300"
+              onClick={() => setViewingPatient(patient)}
+              className="bg-white rounded-2xl p-6 border border-stone-100 hover:shadow-lg hover:shadow-stone-100 transition-all duration-300 cursor-pointer"
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -128,14 +138,14 @@ export default function PatientsPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setEditingPatient(patient)}
+                    onClick={(e) => { e.stopPropagation(); setEditingPatient(patient); }}
                     className="p-1.5 rounded-lg hover:bg-emerald-50 text-stone-400 hover:text-emerald-600 transition-colors"
                     title="Editar paciente"
                   >
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={() => handleDelete(patient.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(patient.id); }}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
                     title="Eliminar paciente"
                   >
@@ -176,11 +186,20 @@ export default function PatientsPage() {
                   <Calendar size={13} />
                   {patient.total_citas ?? 0} citas
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-stone-500">
-                  <UsersIcon size={13} />
-                  {patient.ultima_cita
-                    ? new Date(patient.ultima_cita).toLocaleDateString('es-ES')
-                    : 'Sin visitas'}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs text-stone-500">
+                    <UsersIcon size={13} />
+                    {patient.ultima_cita
+                      ? new Date(patient.ultima_cita).toLocaleDateString('es-ES')
+                      : 'Sin visitas'}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setViewingPatient(patient); }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                  >
+                    <FileText size={13} />
+                    Ver Ficha
+                  </button>
                 </div>
               </div>
             </div>
@@ -207,6 +226,14 @@ export default function PatientsPage() {
           patient={editingPatient}
           onClose={() => setEditingPatient(null)}
           onUpdated={() => { setEditingPatient(null); loadPatients(); }}
+        />
+      )}
+
+      {viewingPatient && (
+        <PatientClinicalModal
+          patient={viewingPatient}
+          onClose={() => setViewingPatient(null)}
+          onSchedule={handleSchedule}
         />
       )}
     </div>
@@ -477,6 +504,227 @@ function EditPatientModal({ patient, onClose, onUpdated }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Ficha del Paciente - Detalle + Historial clínico
+// ============================================================
+const fichaStatusLabels: Record<string, string> = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmada',
+  completed: 'Completada',
+  cancelled: 'Cancelada',
+};
+
+const fichaStatusColors: Record<string, string> = {
+  pending: 'bg-amber-50 text-amber-700',
+  confirmed: 'bg-emerald-50 text-emerald-700',
+  completed: 'bg-blue-50 text-blue-700',
+  cancelled: 'bg-red-50 text-red-500',
+};
+
+function PatientClinicalModal({ patient, onClose, onSchedule }: {
+  patient: Patient;
+  onClose: () => void;
+  onSchedule: (patientId: string) => void;
+}) {
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await api.getAppointments({ patient_id: patient.id, limit: 100 });
+        setAppointments(data.appointments || []);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Error al cargar el historial');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadHistory();
+  }, [patient.id]);
+
+  // Estadísticas del paciente (excluye citas canceladas)
+  const active = appointments.filter((a) => a.estado !== 'cancelled');
+  const totalCitas = active.length;
+  const totalGastos = active.reduce((sum, a) => sum + (a.precio ?? 0), 0);
+  const ultimaVisita = active.reduce<Date | null>((max, a) => {
+    const d = a.date_time ? new Date(a.date_time) : null;
+    if (!d || isNaN(d.getTime())) return max;
+    return max === null || d > max ? d : max;
+  }, null);
+
+  const fmtDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const fmtTime = (a: Appointment) =>
+    a.hora_inicio || a.time || (a.date_time ? a.date_time.slice(11, 16) : '--:--');
+
+  const fmtMoney = (v: number) =>
+    `$${v.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-stone-100 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
+              <span className="text-sm font-bold text-emerald-700">
+                {patient.nombre[0]}{patient.apellido[0]}
+              </span>
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-stone-800">Ficha del Paciente</h2>
+              <p className="text-sm text-stone-500">{patient.nombre} {patient.apellido}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600 transition-colors"
+            title="Cerrar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Datos de contacto */}
+          <div>
+            <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wider mb-3">Datos del Paciente</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {patient.telefono && (
+                <div className="flex items-center gap-2 text-sm text-stone-600">
+                  <Phone size={14} className="text-stone-400 shrink-0" />
+                  <span>{patient.telefono}</span>
+                </div>
+              )}
+              {patient.email && (
+                <div className="flex items-center gap-2 text-sm text-stone-600">
+                  <Mail size={14} className="text-stone-400 shrink-0" />
+                  <span className="truncate">{patient.email}</span>
+                </div>
+              )}
+              {patient.direccion && (
+                <div className="flex items-center gap-2 text-sm text-stone-600">
+                  <MapPin size={14} className="text-stone-400 shrink-0" />
+                  <span className="truncate">{patient.direccion}</span>
+                </div>
+              )}
+              {patient.fecha_nacimiento && (
+                <div className="flex items-center gap-2 text-sm text-stone-600">
+                  <Calendar size={14} className="text-stone-400 shrink-0" />
+                  <span>{fmtDate(patient.fecha_nacimiento)}</span>
+                </div>
+              )}
+            </div>
+            <div className="mt-3 p-3 bg-stone-50 rounded-xl">
+              <div className="flex items-start gap-2 text-sm">
+                <Stethoscope size={14} className="mt-0.5 text-stone-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-stone-500">Notas médicas / Alergias</p>
+                  <p className="text-sm text-stone-700 mt-0.5">
+                    {patient.notas_medicas || 'Sin notas médicas registradas'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Estadísticas */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-4 bg-emerald-50 rounded-xl text-center">
+              <p className="text-2xl font-bold text-emerald-700">{totalCitas}</p>
+              <p className="text-xs text-stone-500 mt-1">Citas atendidas</p>
+            </div>
+            <div className="p-4 bg-blue-50 rounded-xl text-center">
+              <p className="text-2xl font-bold text-blue-700">{fmtMoney(totalGastos)}</p>
+              <p className="text-xs text-stone-500 mt-1">Total invertido</p>
+            </div>
+            <div className="p-4 bg-violet-50 rounded-xl text-center">
+              <p className="text-xl font-bold text-violet-700 mt-0.5">{ultimaVisita ? fmtDate(ultimaVisita.toISOString()) : '—'}</p>
+              <p className="text-xs text-stone-500 mt-1">Última visita</p>
+            </div>
+          </div>
+
+          {/* Historial de citas */}
+          <div>
+            <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wider mb-3">Historial de Citas</h3>
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>
+            )}
+            {loading ? (
+              <div className="space-y-2">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : appointments.length === 0 ? (
+              <div className="text-center py-8 bg-stone-50 rounded-xl">
+                <Calendar size={32} className="mx-auto text-stone-300 mb-2" />
+                <p className="text-sm text-stone-400">Este paciente aún no tiene citas registradas</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {appointments.map((a) => (
+                  <div key={a.id} className="p-3 bg-stone-50 rounded-xl">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Clock size={14} className="text-stone-400 shrink-0" />
+                        <span className="text-sm font-semibold text-stone-800">
+                          {fmtDate(a.date_time)} · {fmtTime(a)}h
+                        </span>
+                        <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize shrink-0 ${
+                          fichaStatusColors[a.estado] || 'bg-stone-100 text-stone-600'
+                        }`}>
+                          {fichaStatusLabels[a.estado] || a.estado}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-stone-700 shrink-0">{fmtMoney(a.precio ?? 0)}</span>
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-1 text-xs text-stone-500">
+                      <span className="truncate">Servicio: {a.service || '—'}</span>
+                      <span className="truncate">Terapeuta: {a.therapist || '—'}</span>
+                      <span>{a.duracion} min</span>
+                    </div>
+                    {a.notas && (
+                      <p className="mt-1 text-xs text-stone-500 line-clamp-2">{a.notas}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-stone-100 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 border border-stone-200 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-50"
+          >
+            Cerrar
+          </button>
+          <button
+            onClick={() => onSchedule(patient.id)}
+            className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all inline-flex items-center justify-center gap-2"
+          >
+            <CalendarPlus size={16} />
+            Agendar Cita
+          </button>
+        </div>
       </div>
     </div>
   );
