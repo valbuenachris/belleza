@@ -10,11 +10,14 @@ import io
 import json
 import logging
 import secrets
+import threading
 import zipfile
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models.patient import Patient
 from ..models.tenant import Tenant
 
@@ -41,6 +44,70 @@ DEFAULT_LOYALTY_CONFIG = {
 # Apple (Certificates, Identifiers & Profiles) al registrarse oficialmente.
 PASS_TYPE_IDENTIFIER = "pass.com.tuuspa.fidelidad"
 TEAM_IDENTIFIER = "XXXXXXXXXX"
+
+# ============================================================
+# Actualización dinámica del pase (Apple Wallet Web Service)
+# ============================================================
+
+def _wallet_service_url() -> str:
+    """URL base pública del web service de Apple (sin barra final)."""
+    return (settings.WALLET_WEB_SERVICE_BASE_URL or "").rstrip("/")
+
+
+def mark_pass_changed(db: Session, patient: Patient) -> None:
+    """
+    Marca el pase como actualizado. Se llama junto con cada cambio de
+    puntos/sesiones (SOBRE la transacción en curso) para alimentar la
+    cabecera Last-Modified y la comparación If-Modified-Since.
+    """
+    patient.wallet_updated_at = datetime.utcnow()
+
+
+def _push_pass_update(tokens: List[str]) -> None:
+    """
+    Hilo worker (fire-and-forget): envía el push APNs a cada dispositivo
+    registrado. No toca sesiones de BD ni bloquea la respuesta HTTP.
+    """
+    from .apns_push import send_pass_update_push
+
+    for token in tokens:
+        try:
+            send_pass_update_push(token)
+        except Exception as e:
+            logger.warning(f"[Fidelidad] Push APNs fallido: {e}")
+
+
+def notify_pass_update(db: Session, patient: Patient) -> int:
+    """
+    Notifica a los dispositivos con el pase registrado que hubo cambios,
+    para que consulten /v1/passes/... y lo actualicen (push APNs).
+
+    Es best-effort y asíncrono (thread daemon): nunca bloquea la
+    respuesta y nunca lanza excepciones. El pase siempre se actualiza
+    de todos modos en la siguiente consulta del web service.
+
+    Returns:
+        Número de push tokens recolectados (0 si no hay dispositivos).
+    """
+    tokens: List[str] = []
+    try:
+        from ..models.pass_registration import PassRegistration
+
+        query = db.query(PassRegistration).filter(
+            PassRegistration.patient_id == str(patient.id),
+            PassRegistration.deleted_at == None,
+        )
+        if patient.wallet_pass_id:
+            query = query.filter(PassRegistration.serial_number == patient.wallet_pass_id)
+        tokens = [reg.push_token for reg in query.all() if reg.push_token]
+    except Exception as e:
+        logger.warning(f"[Fidelidad] No se pudo recolectar dispositivos registrados: {e}")
+        return 0
+
+    if tokens:
+        threading.Thread(target=_push_pass_update, args=(tokens,), daemon=True).start()
+        logger.info(f"[Fidelidad] Pase de {patient.id}: push programado para {len(tokens)} dispositivo(s)")
+    return len(tokens)
 
 
 def get_loyalty_config(tenant=None) -> dict:
@@ -110,6 +177,8 @@ def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
         patient.sesiones_gratis = (patient.sesiones_gratis or 0) + umbrales
         patient.puntos = patient.puntos % puntos_meta
 
+    # El pase cambió: marca para Last-Modified / If-Modified-Since.
+    mark_pass_changed(db, patient)
     db.commit()
     db.refresh(patient)
 
@@ -118,6 +187,9 @@ def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
         f"puntos={patient.puntos}, meta={puntos_meta}, "
         f"sesiones_gratis={patient.sesiones_gratis}"
     )
+
+    # Notifica a los dispositivos registrados (push APNs, best-effort).
+    notify_pass_update(db, patient)
 
     return {
         "puntos": patient.puntos,
@@ -145,11 +217,16 @@ def redeem_free_session(db: Session, patient: Patient) -> dict:
         raise ValueError("El paciente no tiene sesiones gratuitas disponibles")
 
     patient.sesiones_gratis -= 1
+    # El pase cambió: marca para Last-Modified / If-Modified-Since.
+    mark_pass_changed(db, patient)
     db.commit()
     db.refresh(patient)
 
     logger.info(f"[Fidelidad] Paciente {patient.id}: canjeó una sesión gratis "
                 f"(restantes={patient.sesiones_gratis})")
+
+    # Notifica a los dispositivos registrados (push APNs, best-effort).
+    notify_pass_update(db, patient)
 
     return {
         "message": "Sesión gratuita canjeada exitosamente",
@@ -176,19 +253,45 @@ def generate_wallet_pass_token(db: Session, length: int = 64) -> str:
             return token
 
 
+def generate_wallet_auth_token(db: Session, length: int = 64) -> str:
+    """
+    Genera el authenticationToken del pase para el Apple Wallet Web
+    Service (cabecera 'Authorization: ApplePass <token>').
+
+    Se genera de forma INDEPENDIENTE del wallet_pass_id (nunca derivado
+    de él) y es único consultando la columna wallet_auth_token.
+    """
+    while True:
+        token = secrets.token_urlsafe(48)[:length]
+        exists = db.query(Patient.id).filter(Patient.wallet_auth_token == token).first()
+        if not exists:
+            return token
+
+
 def ensure_wallet_pass(db: Session, patient: Patient) -> str:
     """
     Devuelve el wallet_pass_id del paciente, generándolo y persistiéndolo
     si aún no existe. Es el identificador estable de su pase en las wallets.
+
+    También asegura el wallet_auth_token (web service de Apple): así los
+    pacientes anteriores a la migración 0007 quedan habilitados para
+    actualizaciones dinámicas en su próxima descarga del pase.
     """
-    if patient.wallet_pass_id:
-        return patient.wallet_pass_id
+    changed = False
+    if not patient.wallet_pass_id:
+        patient.wallet_pass_id = generate_wallet_pass_token(db)
+        changed = True
+    if not patient.wallet_auth_token:
+        patient.wallet_auth_token = generate_wallet_auth_token(db)
+        changed = True
 
-    patient.wallet_pass_id = generate_wallet_pass_token(db)
-    db.commit()
-    db.refresh(patient)
-
-    logger.info(f"[Fidelidad] Paciente {patient.id}: pase generado (wallet_pass_id={patient.wallet_pass_id})")
+    if changed:
+        db.commit()
+        db.refresh(patient)
+        logger.info(
+            f"[Fidelidad] Paciente {patient.id}: pase generado "
+            f"(wallet_pass_id={patient.wallet_pass_id})"
+        )
     return patient.wallet_pass_id
 
 
@@ -258,7 +361,7 @@ def _pkpass_fields(patient: Patient, tenant=None, tenant_name: Optional[str] = N
     name = tenant_name or (tenant.nombre if tenant else "SPA")
     estado = summary["mensaje"]
     backgroundColor = _hex_to_rgb(config["tarjeta_color_hex"])
-    return {
+    pass_fields = {
         "formatVersion": 1,
         "passTypeIdentifier": PASS_TYPE_IDENTIFIER,
         "serialNumber": patient.wallet_pass_id,
@@ -325,6 +428,15 @@ def _pkpass_fields(patient: Patient, tenant=None, tenant_name: Optional[str] = N
             }
         ],
     }
+
+    # Apple Wallet Web Service: solo se declara webServiceURL si existe el
+    # authenticationToken (son inseparables en pass.json). Ambos permiten
+    # que el dispositivo se registre y reciba pases actualizados.
+    if patient.wallet_auth_token:
+        pass_fields["webServiceURL"] = _wallet_service_url()
+        pass_fields["authenticationToken"] = patient.wallet_auth_token
+
+    return pass_fields
 
 
 def build_pkpass_zip(patient: Patient, tenant=None, tenant_name: Optional[str] = None) -> bytes:

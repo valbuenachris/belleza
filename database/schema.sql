@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS `patients` (
     `puntos` INT NOT NULL DEFAULT 0 COMMENT 'Estrellas/puntos de fidelidad acumulados',
     `sesiones_gratis` INT NOT NULL DEFAULT 0 COMMENT 'Sesiones gratuitas disponibles',
     `wallet_pass_id` VARCHAR(128) NULL DEFAULT NULL COMMENT 'Identificador único del pase digital (Apple Wallet / Google Wallet)',
+    `wallet_auth_token` VARCHAR(128) NULL DEFAULT NULL COMMENT 'authenticationToken del pase (cabecera ApplePass del web service)',
+    `wallet_updated_at` DATETIME NULL DEFAULT NULL COMMENT 'Última actualización de puntos/sesiones (Last-Modified / If-Modified-Since)',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NULL DEFAULT NULL,
     `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
@@ -116,6 +118,7 @@ CREATE TABLE IF NOT EXISTS `patients` (
 
     PRIMARY KEY (`id`),
     UNIQUE KEY `ux_patients_wallet_pass` (`wallet_pass_id`),
+    UNIQUE KEY `ux_patients_wallet_auth` (`wallet_auth_token`),
     INDEX `idx_patients_tenant` (`tenant_id`),
     INDEX `idx_patients_email` (`email`),
     INDEX `idx_tenant_active` (`tenant_id`, `is_active`),
@@ -127,6 +130,37 @@ CREATE TABLE IF NOT EXISTS `patients` (
         ON DELETE CASCADE
         ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de pacientes del SPA';
+
+-- ============================================================
+-- Tabla: pass_registrations
+-- Dispositivos registrados para recibir actualizaciones del pase
+-- (Apple Wallet Web Service: /v1/devices/... /v1/passes/...).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `pass_registrations` (
+    `id` CHAR(36) NOT NULL COMMENT 'UUID del registro',
+    `tenant_id` CHAR(36) NOT NULL COMMENT 'FK al tenant',
+    `patient_id` VARCHAR(36) NOT NULL COMMENT 'Paciente dueño del pase',
+    `pass_type_identifier` VARCHAR(128) NOT NULL COMMENT 'passTypeIdentifier del pase (p.ej. pass.com.tuuspa.fidelidad)',
+    `serial_number` VARCHAR(128) NOT NULL COMMENT 'serialNumber del pase (wallet_pass_id del paciente)',
+    `device_library_identifier` VARCHAR(255) NOT NULL COMMENT 'Identificador único del dispositivo en Apple Wallet',
+    `push_token` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Token APNs del dispositivo para notificar actualizaciones del pase',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NULL DEFAULT NULL,
+    `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
+    `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
+
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_pass_registration` (`device_library_identifier`, `pass_type_identifier`, `serial_number`),
+    INDEX `idx_pass_reg_tenant` (`tenant_id`),
+    INDEX `idx_pass_reg_patient` (`patient_id`),
+    INDEX `idx_pass_reg_device` (`device_library_identifier`),
+
+    CONSTRAINT `fk_pass_registrations_tenant`
+        FOREIGN KEY (`tenant_id`)
+        REFERENCES `tenants` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Dispositivos registrados para actualización de pases (Apple Wallet Web Service)';
 
 -- ============================================================
 -- Tabla: services

@@ -175,5 +175,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Permitir documentación de la API
         if path.startswith("/docs") or path.startswith("/redoc"):
             return True
-        
+
+        # Apple Wallet Web Service: Apple autentica con la cabecera
+        # 'Authorization: ApplePass <token>' (nunca con el JWT del SPA),
+        # así que estas rutas se resuelven por su propio mecanismo.
+        if path == "/v1/log" or path.startswith("/v1/devices/") or path.startswith("/v1/passes/"):
+            return True
+
         return False

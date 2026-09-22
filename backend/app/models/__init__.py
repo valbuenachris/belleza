@@ -7,6 +7,7 @@ from .patient import Patient
 from .service import Service
 from .appointment import Appointment
 from .clinical_record import ClinicalRecord
+from .pass_registration import PassRegistration
 
 __all__ = [
     "Base",
@@ -17,4 +18,5 @@ __all__ = [
     "Service",
     "Appointment",
     "ClinicalRecord",
+    "PassRegistration",
 ]

@@ -171,4 +171,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
         for public_path in PUBLIC_PATHS:
             if path == public_path or path.startswith("/docs") or path.startswith("/redoc"):
                 return True
+        # Apple Wallet Web Service: el tenant se resuelve desde el pase/paciente,
+        # no desde el JWT, así que estas rutas no requieren tenant en sesión.
+        if path == "/v1/log" or path.startswith("/v1/devices/") or path.startswith("/v1/passes/"):
+            return True
         return False

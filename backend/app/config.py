@@ -71,6 +71,27 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     
     # ----------------------------------------------------------
+    # Apple Wallet Web Service (actualización dinámica de pases)
+    # ----------------------------------------------------------
+    # URL base pública del web service de Apple (sin barra final, https).
+    # Debe apuntar a la raíz del backend expuesto públicamente; por
+    # defecto se usa el mismo host que la web si nginx proxea /v1/* al
+    # contenedor del backend.
+    WALLET_WEB_SERVICE_BASE_URL: str = "https://estetica.tienderu.com"
+    # APNs (Apple Push Notification Service) - OPCIONAL. El push es lo
+    # que dispara la descarga automática del pase actualizado en el
+    # dispositivo; el web service (registro y paso del pase) funciona
+    # igual sin APNs configurado.
+    APNS_ENABLED: bool = False
+    APNS_SANDBOX: bool = False
+    # JWT de proveedor (AuthKey_<id>.p8 que descargas de APNs Keys).
+    APNS_KEY_ID: str = ""
+    APNS_TEAM_ID: str = ""
+    APNS_P8_PATH: str = ""
+    # Topic del push = passTypeIdentifier del pase.
+    APNS_TOPIC: str = "pass.com.tuuspa.fidelidad"
+    
+    # ----------------------------------------------------------
     # Docker
     # ----------------------------------------------------------
     DOCKER_ENV: bool = False

@@ -30,6 +30,9 @@ python-dotenv==1.0.0
 
 # HTTP Client (para testing y llamadas internas)
 httpx==0.26.0
+# HTTP/2 para APNs (Apple Push Notification Service) - requerido por el
+# Apple Wallet Web Service para enviar push de actualización de pases.
+h2==4.1.0
 
 # Cache y Sesiones
 redis==5.0.1

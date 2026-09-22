@@ -158,6 +158,9 @@ app.include_router(clinical_records.router, prefix=settings.API_PREFIX)
 app.include_router(clinical_records.record_router, prefix=settings.API_PREFIX)
 app.include_router(loyalty.router, prefix=settings.API_PREFIX)
 app.include_router(loyalty.scan_router, prefix=settings.API_PREFIX)
+# Apple Wallet Web Service: se monta en /v1 (raíz, SIN /api/v1) porque
+# Apple llama a /v1/devices/... /v1/passes/... y /v1/log directamente.
+app.include_router(loyalty.wallet_router)
 
 
 # ============================================================

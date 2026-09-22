@@ -5,13 +5,17 @@
 # ============================================================
 
 import logging
+from datetime import datetime, timezone
+from email.utils import formatdate, parsedate_to_datetime
+from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user, get_current_tenant_id, require_role
+from ..models.pass_registration import PassRegistration
 from ..models.patient import Patient
 from ..models.tenant import Tenant
 from ..models.user import User
@@ -20,6 +24,11 @@ from ..services import loyalty_service
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/patients", tags=["Programa de Fidelidad"])
 scan_router = APIRouter(prefix="/loyalty", tags=["Escáner de Fidelidad"])
+# Apple Wallet Web Service: Apple llama DIRECTAMENTE a estos endpoints con
+# la cabecera 'Authorization: ApplePass <authenticationToken>' (NUNCA con
+# el JWT de usuarios del SPA). Se montan en /v1 (sin el prefijo /api/v1)
+# y se declaran como rutas públicas en los middlewares.
+wallet_router = APIRouter(prefix="/v1", tags=["Apple Wallet Web Service"])
 
 
 # ============================================================
@@ -226,3 +235,297 @@ def scan_redeem(
         "premio": config["premio_fidelidad"],
         "sesiones_gratis": result["sesiones_gratis"],
     }
+
+
+# ============================================================
+# Apple Wallet Web Service (Apple Wallet → nuestro backend)
+# ============================================================
+#
+# Especificación oficial de Apple (esquema /v1):
+#   POST   /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}
+#   DELETE /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}
+#   GET    /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}   (serialNumbers)
+#   GET    /v1/passes/{passTypeIdentifier}/{serialNumber}                             (última versión)
+#   POST   /v1/log
+#
+# Autenticación: cabecera 'Authorization: ApplePass <authenticationToken>'.
+# El authenticationToken es el patient.wallet_auth_token (independiente
+# del wallet_pass_id). El tenant se resuelve desde el paciente, por lo
+# que estas rutas son públicas para los middlewares JWT/tenant.
+
+def _authenticate_wallet_request(
+    db: Session,
+    request: Request,
+    pass_type_identifier: str,
+    serial_number: Optional[str],
+) -> Patient:
+    """
+    Valida la cabecera 'Authorization: ApplePass <token>' contra el
+    wallet_auth_token del paciente y comprueba el tipo de pase y el
+    serial number de la URL. Devuelve el paciente (y su tenant vía
+    patient.tenant_id).
+    """
+    auth_header = request.headers.get("Authorization", "") or ""
+    parts = auth_header.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "applepass":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autorización de Apple Wallet inválida (ApplePass <token>)",
+        )
+    token = parts[1].strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de pase inválido",
+        )
+
+    patient = db.query(Patient).filter(
+        Patient.wallet_auth_token == token,
+        Patient.deleted_at == None,
+    ).first()
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de pase inválido",
+        )
+
+    if pass_type_identifier != loyalty_service.PASS_TYPE_IDENTIFIER:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tipo de pase no soportado",
+        )
+    if serial_number is not None and patient.wallet_pass_id != serial_number:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pase no encontrado",
+        )
+    return patient
+
+
+def _find_registration(
+    db: Session,
+    device_library_identifier: str,
+    pass_type_identifier: str,
+    serial_number: str,
+    patient_id: Optional[str] = None,
+):
+    query = db.query(PassRegistration).filter(
+        PassRegistration.device_library_identifier == device_library_identifier,
+        PassRegistration.pass_type_identifier == pass_type_identifier,
+        PassRegistration.serial_number == serial_number,
+        PassRegistration.deleted_at == None,
+    )
+    if patient_id is not None:
+        query = query.filter(PassRegistration.patient_id == patient_id)
+    return query.first()
+
+
+def _last_modified_dt(
+    patient: Patient,
+    registrations: Optional[List[PassRegistration]] = None,
+) -> datetime:
+    """Momento de la última actualización del pase (UTC)."""
+    candidates = [patient.wallet_updated_at, patient.updated_at]
+    if registrations:
+        for registration in registrations:
+            if registration.updated_at:
+                candidates.append(registration.updated_at)
+    valid = [dt for dt in candidates if dt is not None]
+    return max(valid) if valid else datetime.utcnow()
+
+
+def _http_date(dt: datetime) -> str:
+    """Fecha HTTP (RFC 7231) para la cabecera Last-Modified."""
+    return formatdate(dt.replace(tzinfo=timezone.utc).timestamp(), usegmt=True)
+
+
+# ------------------------------------------------------------
+# POST /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}
+# Registra el dispositivo para recibir actualizaciones del pase.
+#   201 si es un registro nuevo, 200 si ya estaba registrado.
+# ------------------------------------------------------------
+
+@wallet_router.post(
+    "/devices/{device_library_identifier}/registrations/{pass_type_identifier}/{serial_number}",
+    summary="Registrar un dispositivo para recibir actualizaciones del pase",
+)
+def register_wallet_device(
+    device_library_identifier: str,
+    pass_type_identifier: str,
+    serial_number: str,
+    request: Request,
+    payload: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    patient = _authenticate_wallet_request(db, request, pass_type_identifier, serial_number)
+    push_token = (payload or {}).get("pushToken")
+
+    registration = _find_registration(
+        db, device_library_identifier, pass_type_identifier, serial_number
+    )
+    if registration:
+        if push_token is not None and registration.push_token != push_token:
+            registration.push_token = push_token
+            registration.patient_id = str(patient.id)
+            registration.tenant_id = str(patient.tenant_id)
+            db.commit()
+        return Response(status_code=status.HTTP_200_OK)
+
+    db.add(
+        PassRegistration(
+            tenant_id=str(patient.tenant_id),
+            patient_id=str(patient.id),
+            pass_type_identifier=pass_type_identifier,
+            serial_number=serial_number,
+            device_library_identifier=device_library_identifier,
+            push_token=push_token,
+        )
+    )
+    db.commit()
+    logger.info(
+        f"[Wallet] Registro: device={device_library_identifier} -> "
+        f"pase={serial_number} (paciente {patient.id})"
+    )
+    return Response(status_code=status.HTTP_201_CREATED)
+
+
+# ------------------------------------------------------------
+# DELETE /v1/devices/.../registrations/{passTypeIdentifier}/{serialNumber}
+# Da de baja el dispositivo (deja de recibir actualizaciones).
+# ------------------------------------------------------------
+
+@wallet_router.delete(
+    "/devices/{device_library_identifier}/registrations/{pass_type_identifier}/{serial_number}",
+    summary="Dar de baja el dispositivo para un pase",
+)
+def unregister_wallet_device(
+    device_library_identifier: str,
+    pass_type_identifier: str,
+    serial_number: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    patient = _authenticate_wallet_request(db, request, pass_type_identifier, serial_number)
+    registration = _find_registration(
+        db,
+        device_library_identifier,
+        pass_type_identifier,
+        serial_number,
+        patient_id=str(patient.id),
+    )
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registro de pase no encontrado",
+        )
+    db.delete(registration)
+    db.commit()
+    logger.info(f"[Wallet] Baja: device={device_library_identifier} -> pase={serial_number}")
+    return Response(status_code=status.HTTP_200_OK)
+
+
+# ------------------------------------------------------------
+# GET /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}
+# Lista los serialNumbers del pase registrados en el dispositivo.
+#   200 con {serialNumbers, lastUpdated} | 204 si no hay registros.
+# ------------------------------------------------------------
+
+@wallet_router.get(
+    "/devices/{device_library_identifier}/registrations/{pass_type_identifier}",
+    summary="Obtener serial numbers de pases registrados para el dispositivo",
+)
+def get_wallet_device_serials(
+    device_library_identifier: str,
+    pass_type_identifier: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    patient = _authenticate_wallet_request(db, request, pass_type_identifier, None)
+
+    registrations = db.query(PassRegistration).filter(
+        PassRegistration.device_library_identifier == device_library_identifier,
+        PassRegistration.pass_type_identifier == pass_type_identifier,
+        PassRegistration.patient_id == str(patient.id),
+        PassRegistration.deleted_at == None,
+    ).all()
+
+    if not registrations:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    serial_numbers = [registration.serial_number for registration in registrations]
+    last_updated = _last_modified_dt(patient, registrations)
+    return JSONResponse(content={
+        "serialNumbers": serial_numbers,
+        # Formato ISO 8601 esperado por Apple (p.ej. 2011-06-25T07:47:32+0000)
+        "lastUpdated": last_updated.strftime("%Y-%m-%dT%H:%M:%S+0000"),
+    })
+
+
+# ------------------------------------------------------------
+# GET /v1/passes/{passTypeIdentifier}/{serialNumber}
+# Entrega la última versión del .pkpass.
+#   304 si no cambió desde If-Modified-Since | 200 con el pase.
+# ------------------------------------------------------------
+
+@wallet_router.get(
+    "/passes/{pass_type_identifier}/{serial_number}",
+    summary="Obtener la última versión del pase",
+)
+def get_latest_wallet_pass(
+    pass_type_identifier: str,
+    serial_number: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    patient = _authenticate_wallet_request(db, request, pass_type_identifier, serial_number)
+
+    last_modified_dt = patient.wallet_updated_at or patient.updated_at or patient.created_at
+    if last_modified_dt is not None:
+        if_modified_since = request.headers.get("If-Modified-Since")
+        if if_modified_since:
+            try:
+                since = parsedate_to_datetime(if_modified_since)
+                if since is not None and since.tzinfo is not None:
+                    since = since.replace(tzinfo=None)
+                if last_modified_dt <= since:
+                    return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+            except (TypeError, ValueError):
+                logger.debug("[Wallet] If-Modified-Since inválido; se devuelve el pase completo")
+
+    tenant = db.query(Tenant).filter(Tenant.id == patient.tenant_id).first()
+    pkpass_bytes = loyalty_service.build_pkpass_zip(patient, tenant)
+    filename = f"fidelidad-{serial_number[:16]}.pkpass"
+
+    headers = {}
+    if last_modified_dt is not None:
+        headers["Last-Modified"] = _http_date(last_modified_dt)
+    headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    return Response(
+        content=pkpass_bytes,
+        media_type="application/vnd.apple.pkpass",
+        headers=headers,
+    )
+
+
+# ------------------------------------------------------------
+# POST /v1/log
+# Apple reporta logs del web service. Los registramos y respondemos 200.
+# ------------------------------------------------------------
+
+@wallet_router.post("/log", summary="Registrar logs del web service de Apple Wallet")
+def receive_wallet_logs(
+    payload: Any = Body(default=None),
+):
+    messages: List[str] = []
+    if isinstance(payload, list):
+        messages = [str(message) for message in payload]
+    elif isinstance(payload, dict):
+        logs = payload.get("logs", payload.get("messages", []))
+        if isinstance(logs, list):
+            messages = [str(message) for message in logs]
+
+    for message in messages:
+        logger.info(f"[Apple Wallet log] {message}")
+
+    return {"success": True}

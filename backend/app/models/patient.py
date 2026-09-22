@@ -6,7 +6,7 @@
 from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import String, Date, Text, Integer, Index
+from sqlalchemy import String, Date, DateTime, Text, Integer, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -94,6 +94,21 @@ class Patient(Base, TenantBaseModel):
         nullable=True,
         unique=True,
         comment="Identificador único del pase digital (Apple Wallet / Google Wallet)",
+    )
+
+    # ----------------------------------------------------------
+    # Apple Wallet Web Service (actualización dinámica del pase)
+    # ----------------------------------------------------------
+    wallet_auth_token: Mapped[Optional[str]] = mapped_column(
+        String(128),
+        nullable=True,
+        unique=True,
+        comment="authenticationToken del pase (cabecera ApplePass del web service)",
+    )
+    wallet_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="Última actualización de puntos/sesiones (Last-Modified / If-Modified-Since)",
     )
 
     # ----------------------------------------------------------
