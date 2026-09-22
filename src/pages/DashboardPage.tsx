@@ -74,6 +74,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     setScannerError('');
     try {
       const res = action === 'add' ? await api.scanAddPoint(token) : await api.scanRedeem(token);
+      console.log('[SCANNER] Respuesta API:', res);
+      console.log('[SCANNER] Puntos recibidos:', res.puntos);
       setScannerResult((prev) => ({ ...(prev || {}), ...res }));
     } catch (err) {
       setScannerError(err instanceof ApiError ? err.message : 'Error al procesar el escaneo');
