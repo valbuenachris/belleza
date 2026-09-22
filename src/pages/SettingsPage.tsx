@@ -12,7 +12,9 @@ import {
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { tenant, updateTenant } = useAuth();
+  const { tenant, updateTenant, user } = useAuth();
+  // Solo admin/manager del tenant pueden configurar el programa de lealtad.
+  const canManageLoyalty = ['admin', 'manager'].includes(user?.rol ?? '');
   const [activeTab, setActiveTab] = useState('general');
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -193,7 +195,7 @@ export default function SettingsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-white rounded-xl p-1 border border-stone-200 overflow-x-auto">
-        {tabs.map(tab => (
+        {tabs.filter(tab => tab.id !== 'loyalty' || canManageLoyalty).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -211,7 +213,7 @@ export default function SettingsPage() {
 
       {/* Content */}
       <div className="bg-white rounded-2xl border border-stone-100 p-6 lg:p-8">
-        {activeTab === 'general' && (
+        {activeTab === 'general' || (activeTab === 'loyalty' && !canManageLoyalty) ? (
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-semibold text-stone-800 mb-4">Información General</h3>
@@ -285,7 +287,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
         {activeTab === 'schedule' && (
           <div className="space-y-6">
@@ -379,7 +381,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'loyalty' && (
+        {activeTab === 'loyalty' && canManageLoyalty && (
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-semibold text-stone-800 mb-1">Programa de Lealtad</h3>

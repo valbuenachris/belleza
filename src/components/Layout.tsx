@@ -26,7 +26,7 @@ const navItems: { id: Page; label: string; icon: React.ReactNode; roles: string[
   { id: 'appointments', label: 'Citas', icon: <Calendar size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
   { id: 'reports', label: 'Reportes', icon: <BarChart size={20} />, roles: ['admin', 'manager'] },
   { id: 'patients', label: 'Pacientes', icon: <UserCheck size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
-  { id: 'settings', label: 'Configuración', icon: <Settings size={20} />, roles: ['admin'] },
+  { id: 'settings', label: 'Configuración', icon: <Settings size={20} />, roles: ['admin', 'manager'] },
   { id: 'docs', label: 'Documentación', icon: <BookOpen size={20} />, roles: ['superadmin'] },
 ];
 

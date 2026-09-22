@@ -59,6 +59,9 @@ function AppRouter() {
     if (currentPage === 'reports' && !['admin', 'manager'].includes(user?.rol ?? '')) {
       return <DashboardPage onNavigate={setCurrentPage} />;
     }
+    if (currentPage === 'settings' && !['admin', 'manager'].includes(user?.rol ?? '')) {
+      return <DashboardPage onNavigate={setCurrentPage} />;
+    }
 
     switch (currentPage) {
       case 'dashboard':

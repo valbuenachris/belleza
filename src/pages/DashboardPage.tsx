@@ -2,7 +2,13 @@
 // Dashboard - Vista principal con estadísticas reales
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+// Se usa Html5Qrcode (no Html5QrcodeScanner): en la v2.3.8 el Scanner NO
+// arranca la cámara por sí mismo ni devuelve una Promise (render() tira un
+// TypeError si se encadena con .then() y además nunca muestra el prompt de
+// permisos). Html5Qrcode.start() sí pide permisos de inmediato y devuelve
+// una Promise real, por lo que el flujo try/catch + degradación funciona.
+import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
 import { TenantStats, Appointment, Page, ScanLoyaltyResult } from '../types';
@@ -10,7 +16,7 @@ import {
   Users, Calendar, DollarSign, UserCheck, TrendingUp,
   Clock, Activity, Building2, CheckCircle2, Circle,
   ChevronRight, Settings, Tag, HelpCircle, UserPlus, CalendarPlus,
-  AlertCircle, QrCode, X, Star, RefreshCw
+  AlertCircle, QrCode, X, Star, RefreshCw, Camera, CameraOff
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -34,18 +40,41 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [scannerResult, setScannerResult] = useState<ScanLoyaltyResult | null>(null);
   const [scannerBusy, setScannerBusy] = useState(false);
   const [scannerError, setScannerError] = useState('');
+  const [cameraStatus, setCameraStatus] = useState<'starting' | 'on' | 'error'>('starting');
+  const [cameraError, setCameraError] = useState('');
+  const [cameraRetry, setCameraRetry] = useState(0);
 
-  const scanPoint = async (action: 'add' | 'redeem') => {
-    const code = scannerInput.trim();
-    if (!code) {
+  // Instancia activa de Html5Qrcode + control para que un QR no dispare dos
+  // veces la misma acción (evita estrellas duplicadas).
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const acceptScanRef = useRef(true);
+  const lastWarnRef = useRef(0);
+
+  // El QR del pase contiene "pass_type_identifier/token" (o solo el token).
+  // Normaliza igual que el backend: conserva la parte después de la última "/".
+  const normalizeWalletPass = (raw: string): string => {
+    const value = (raw || '').trim();
+    return value.includes('/') ? value.split('/').pop()!.trim() : value;
+  };
+
+  const isValidWalletPass = (token: string): boolean => /^[A-Za-z0-9_-]{16,}$/.test(token);
+
+  const runScan = async (action: 'add' | 'redeem', code?: string) => {
+    const value = (code || '').trim() || scannerInput.trim();
+    if (!value) {
       setScannerError('Ingresa el código de la tarjeta (wallet_pass_id)');
+      return;
+    }
+    const token = normalizeWalletPass(value);
+    if (!isValidWalletPass(token)) {
+      setScannerError('El código no parece un pase de fidelidad válido.');
       return;
     }
     setScannerBusy(true);
     setScannerError('');
     try {
-      const res = action === 'add' ? await api.scanAddPoint(code) : await api.scanRedeem(code);
-      setScannerResult({ ...scannerResult, ...res });
+      const res = action === 'add' ? await api.scanAddPoint(token) : await api.scanRedeem(token);
+      setScannerResult((prev) => ({ ...(prev || {}), ...res }));
     } catch (err) {
       setScannerError(err instanceof ApiError ? err.message : 'Error al procesar el escaneo');
     } finally {
@@ -53,10 +82,184 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     }
   };
 
+  const scanPoint = (action: 'add' | 'redeem') => runScan(action, scannerInput);
+
+  // Inicia/detiene la cámara junto con el ciclo del modal.
+  // Todas las operaciones arriesgadas (bind del DOM, start de la cámara)
+  // van dentro de try/catch y con espera del nodo #qr-reader para que un
+  // fallo de inicialización NUNCA tire abajo la app (pantalla blanca):
+  // degrada a la entrada manual en su lugar.
+  useEffect(() => {
+    if (!showScanner) return;
+    setCameraStatus('starting');
+    setCameraError('');
+    acceptScanRef.current = true;
+
+    let cancelled = false;
+    let timer = 0;
+
+    // Detiene una instancia pendiente de forma segura (stop + clear) y
+    // limpia el host. Nunca lanza.
+    const tearDown = (inst: Html5Qrcode | null) => {
+      if (!inst) return;
+      try {
+        inst
+          .stop()
+          .catch(() => {
+            // no-op: no estaba escaneando.
+          })
+          .finally(() => {
+            try {
+              inst.clear();
+            } catch {
+              // no-op: nunca lanzar desde el cleanup.
+            }
+          });
+      } catch {
+        try {
+          inst.clear();
+        } catch {
+          // no-op: nunca lanzar desde el cleanup.
+        }
+      }
+    };
+
+    // Degradación controlada: pantalla con error → estado 'error' → entrada manual.
+    // Guarda el detalle crudo del error (error.message / string de la librería)
+    // en cameraError para diagnosticar el motivo exacto desde la UI.
+    const fail = (msj: string, detail?: unknown) => {
+      if (cancelled) return;
+      let detailStr = '';
+      if (detail instanceof Error) detailStr = detail.message;
+      else if (typeof detail === 'string' && detail) detailStr = detail;
+      else if (detail) detailStr = String(detail);
+      console.warn('[Escanear Tarjeta]', msj, detailStr ? `(${detailStr})` : '');
+      acceptScanRef.current = false;
+      tearDown(scannerRef.current);
+      scannerRef.current = null;
+      setCameraStatus('error');
+      setCameraError(detailStr ? `${msj} — Detalle: ${detailStr}` : msj);
+    };
+
+    // (2) Try/Catch: la inicialización jamás puede propagar una excepción.
+    const startScanner = () => {
+      if (cancelled) return;
+
+      // (1) DOM Guard: el host debe existir y estar vacío antes de instanciar.
+      const host = document.getElementById('qr-reader');
+      if (!host) {
+        fail('No se encontró la vista de escaneo. Usa el campo manual.');
+        return;
+      }
+      host.innerHTML = '';
+
+      try {
+        const inst = new Html5Qrcode('qr-reader', { verbose: false });
+        scannerRef.current = inst;
+
+        const onScanSuccess = (decodedText: string) => {
+          if (!acceptScanRef.current) return;
+          const token = normalizeWalletPass(decodedText);
+          if (!isValidWalletPass(token)) {
+            const now = Date.now();
+            if (now - lastWarnRef.current > 3000) {
+              lastWarnRef.current = now;
+              setScannerError('QR detectado no es un pase de fidelidad válido.');
+            }
+            return;
+          }
+          // Gatillo automático: al leer un QR válido se registra la estrella.
+          acceptScanRef.current = false;
+          lastWarnRef.current = 0;
+          setScannerInput(token);
+          runScan('add', token);
+        };
+
+        const onScanFailure = (errorMessage: string) => {
+          if (cancelled) return;
+          // Solo tratamos como fallo los errores de acceso a cámara/permisos;
+          // los "No barcode found" del loop normal se ignoran.
+          const msj = errorMessage || '';
+          if (/NotAllowed|NotReadable|NotFound|Permission|denied|denegado|no camera|cámara/i.test(msj)) {
+            fail('No se pudo acceder a la cámara.', msj);
+          }
+        };
+
+        // start() pide permisos de cámara de inmediato y devuelve una Promise
+        // real: se rechaza con el motivo exacto (permiso denegado, sin cámara…).
+        // En escritorio sin cámara trasera se reintenta con la frontal.
+        const tryStart = (facing: 'environment' | 'user') =>
+          inst.start({ facingMode: facing }, { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1.0 }, onScanSuccess, onScanFailure);
+
+        tryStart('environment')
+          .catch((err1: unknown) => {
+            if (cancelled) return Promise.reject(err1);
+            return tryStart('user');
+          })
+          .then(() => {
+            if (!cancelled) setCameraStatus('on');
+          })
+          .catch((err) => {
+            console.warn('[Escanear Tarjeta] no se pudo iniciar la cámara', err);
+            fail('No se pudo iniciar la cámara o se denegó el permiso.', err);
+          });
+      } catch (err) {
+        console.warn('[Escanear Tarjeta] error al inicializar el escáner', err);
+        fail('No se pudo iniciar el escáner.', err);
+      }
+    };
+
+    // (1) DOM Guard + defer: deja pasar el render de React (100ms) y espera
+    // a que #qr-reader exista en el DOM (hasta ~1s) antes de instanciar.
+    timer = window.setTimeout(() => {
+      if (cancelled) return;
+      let attempts = 0;
+      const tryBind = () => {
+        if (cancelled) return;
+        if (document.getElementById('qr-reader')) {
+          startScanner();
+          return;
+        }
+        attempts += 1;
+        if (attempts >= 10) {
+          fail('No se encontró la vista de escaneo. Usa el campo manual.');
+          return;
+        }
+        timer = window.setTimeout(tryBind, 100);
+      };
+      tryBind();
+    }, 100);
+
+    // (3) Double-init guard: al cerrar (o re-montar) se detiene la instancia
+    // registrada en el ref para que nunca corran dos cámaras a la vez.
+    return () => {
+      cancelled = true;
+      acceptScanRef.current = true;
+      window.clearTimeout(timer);
+      tearDown(scannerRef.current);
+      scannerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScanner, cameraRetry]);
+
+  const rearmScanner = () => {
+    acceptScanRef.current = true;
+    lastWarnRef.current = 0;
+    setScannerError('');
+    try {
+      scannerRef.current?.resume();
+    } catch {
+      // Si el escáner ya estaba activo, no-op.
+    }
+  };
+
   const openScanner = () => {
     setScannerInput('');
     setScannerResult(null);
     setScannerError('');
+    setCameraStatus('starting');
+    setCameraError('');
+    acceptScanRef.current = true;
     setShowScanner(true);
   };
 
@@ -547,10 +750,63 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-stone-500">
-                Ingresa el código de la tarjeta de fidelidad (o escanea el QR del pase) para registrar una estrella o canjear una sesión.
-              </p>
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Vista de cámara (Html5Qrcode) */}
+              <div className="rounded-2xl overflow-hidden border border-stone-200 bg-stone-900 relative">
+                {cameraStatus === 'error' ? (
+                  <div className="p-6 text-center text-sm text-amber-200/90 bg-stone-900">
+                    <CameraOff size={32} className="mx-auto mb-2 text-amber-300" />
+                    <p className="font-medium mb-1">No se pudo acceder a la cámara</p>
+                    <p className="text-amber-200/70 text-xs mb-3 break-words font-mono bg-amber-300/10 border border-amber-300/20 rounded-lg p-2">
+                      {cameraError || 'Permisos bloqueados o página sin HTTPS.'}
+                    </p>
+                    <button
+                      onClick={() => setCameraRetry(c => c + 1)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-300/20 hover:bg-amber-300/30 text-amber-100 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <RefreshCw size={12} /> Reintentar cámara
+                    </button>
+                    <p className="text-xs text-amber-200/60 mt-3">
+                      O usa la entrada manual de abajo para leer la tarjeta de fidelidad.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative min-h-[300px]">
+                    {/* Html5Qrcode inyecta el <video> aquí; necesita ancho/alto > 0. */}
+                    <div id="qr-reader" className="w-full min-h-[300px]" />
+                    {cameraStatus === 'starting' && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-stone-300 bg-stone-900/80 text-sm">
+                        <Camera size={22} className="animate-pulse" />
+                        Activando cámara…
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {cameraStatus !== 'error' && (
+                <p className="text-xs text-stone-500 flex items-start gap-1.5">
+                  <Camera size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                  Apunta la cámara al QR de la tarjeta de fidelidad. Al leerlo, la estrella se registra automáticamente.
+                </p>
+              )}
+
+              {scannerResult && (
+                <button
+                  onClick={rearmScanner}
+                  disabled={scannerBusy}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-medium rounded-xl transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={15} /> Escanear siguiente tarjeta
+                </button>
+              )}
+
+              {/* Entrada manual (override si la cámara está bloqueada) */}
+              <div className="flex items-center gap-2 text-xs font-semibold text-stone-400 uppercase tracking-wide">
+                <span className="h-px flex-1 bg-stone-200" />
+                Entrada manual
+                <span className="h-px flex-1 bg-stone-200" />
+              </div>
               <input
                 type="text"
                 value={scannerInput}
