@@ -202,6 +202,58 @@ CREATE TABLE IF NOT EXISTS `appointments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de citas agendadas en el SPA';
 
 -- ============================================================
+-- Tabla: clinical_records
+-- Historia clínica / evoluciones de tratamiento por paciente
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `clinical_records` (
+    `id` CHAR(36) NOT NULL COMMENT 'UUID del registro',
+    `tenant_id` CHAR(36) NOT NULL COMMENT 'FK al tenant',
+    `patient_id` CHAR(36) NOT NULL COMMENT 'FK al paciente',
+    `therapist_id` CHAR(36) NULL DEFAULT NULL COMMENT 'FK al terapeuta (usuarios)',
+    `appointment_id` CHAR(36) NULL DEFAULT NULL COMMENT 'FK a la cita/sesión asociada',
+    `fecha` DATETIME NOT NULL COMMENT 'Fecha y hora de la sesión/evolución',
+    `zona_tratada` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Zona tratada (ej: Rostro, Espalda)',
+    `tratamiento_servicio` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Tratamiento o servicio realizado',
+    `productos_parametros` TEXT NULL COMMENT 'Productos aplicados / parámetros',
+    `observaciones` TEXT NULL COMMENT 'Observaciones y evolución del paciente',
+    `diagnostico` TEXT NULL COMMENT 'Diagnóstico o valoración clínica',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NULL DEFAULT NULL,
+    `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
+    `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
+
+    PRIMARY KEY (`id`),
+    INDEX `idx_clinical_records_tenant` (`tenant_id`),
+    INDEX `idx_clinical_records_patient` (`patient_id`),
+    INDEX `idx_clinical_records_therapist` (`therapist_id`),
+    INDEX `idx_clinical_records_appointment` (`appointment_id`),
+    INDEX `idx_clinical_records_fecha` (`fecha`),
+    INDEX `idx_tenant_active` (`tenant_id`, `is_active`),
+    INDEX `idx_clinical_records_deleted` (`deleted_at`),
+
+    CONSTRAINT `fk_clinical_records_tenant`
+        FOREIGN KEY (`tenant_id`)
+        REFERENCES `tenants` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT `fk_clinical_records_patient`
+        FOREIGN KEY (`patient_id`)
+        REFERENCES `patients` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT `fk_clinical_records_therapist`
+        FOREIGN KEY (`therapist_id`)
+        REFERENCES `users` (`id`)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+    CONSTRAINT `fk_clinical_records_appointment`
+        FOREIGN KEY (`appointment_id`)
+        REFERENCES `appointments` (`id`)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de historia clínica / evoluciones de tratamiento';
+
+-- ============================================================
 -- NOTA: Los triggers de actualización automática de updated_at
 -- fueron ELIMINADOS. updated_at lo mantiene el ORM (onupdate),
 -- alineado con las migraciones de Alembic y con create_all.

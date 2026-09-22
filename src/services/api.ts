@@ -22,6 +22,10 @@ import {
   AppointmentsResponse,
   AppointmentSummary,
   FinancialReport,
+  ClinicalRecord,
+  ClinicalRecordCreateInput,
+  ClinicalRecordUpdateInput,
+  ClinicalRecordsResponse,
   UserCreate,
   UserUpdate,
   UsersResponse,
@@ -566,6 +570,33 @@ export const api = {
     if (params?.hasta) query.set('hasta', params.hasta);
     const qs = query.toString();
     return request<FinancialReport>(`/appointments/stats/financial${qs ? `?${qs}` : ''}`);
+  },
+
+  // ----------------------------------------------------------
+  // Historia Clínica / Evoluciones
+  // ----------------------------------------------------------
+  async getPatientRecords(patientId: string): Promise<ClinicalRecordsResponse> {
+    return request<ClinicalRecordsResponse>(`/patients/${patientId}/records`);
+  },
+
+  async createClinicalRecord(patientId: string, data: ClinicalRecordCreateInput): Promise<ClinicalRecord> {
+    const res = await request<{ record: ClinicalRecord }>(`/patients/${patientId}/records`, {
+      method: 'POST',
+      body: data,
+    });
+    return res.record;
+  },
+
+  async updateClinicalRecord(id: string, data: ClinicalRecordUpdateInput): Promise<ClinicalRecord> {
+    const res = await request<{ record: ClinicalRecord }>(`/clinical-records/${id}`, {
+      method: 'PUT',
+      body: data,
+    });
+    return res.record;
+  },
+
+  async deleteClinicalRecord(id: string): Promise<void> {
+    await request<{ deleted: boolean }>(`/clinical-records/${id}`, { method: 'DELETE' });
   },
 
   // ----------------------------------------------------------

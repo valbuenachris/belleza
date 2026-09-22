@@ -19,7 +19,7 @@ from app.config import settings  # noqa: E402
 from app.database import Base  # noqa: E402
 
 # Importar los modelos para que se registren en Base.metadata
-from app.models import tenant, user, patient, service, appointment  # noqa: E402, F401
+from app.models import tenant, user, patient, service, appointment, clinical_record  # noqa: E402, F401
 
 # ------------------------------------------------------------
 # Configuración de Alembic

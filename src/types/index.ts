@@ -217,6 +217,48 @@ export interface AppointmentsResponse {
   total: number;
 }
 
+// ============================================================
+// Historia Clínica / Evoluciones
+// ============================================================
+
+export interface ClinicalRecord {
+  id: string;
+  tenant_id: string;
+  patient_id: string;
+  therapist_id: string | null;
+  appointment_id: string | null;
+  fecha: string | null;
+  zona_tratada: string | null;
+  tratamiento_servicio: string | null;
+  productos_parametros: string | null;
+  observaciones: string | null;
+  diagnostico: string | null;
+  therapist_name: string;
+  patient_name: string;
+  servicio: string;
+  activo: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ClinicalRecordCreateInput {
+  fecha?: string;
+  zona_tratada?: string;
+  tratamiento_servicio?: string;
+  productos_parametros?: string;
+  observaciones?: string;
+  diagnostico?: string;
+  therapist_id?: string;
+  appointment_id?: string;
+}
+
+export type ClinicalRecordUpdateInput = Partial<ClinicalRecordCreateInput> & { activo?: boolean };
+
+export interface ClinicalRecordsResponse {
+  records: ClinicalRecord[];
+  total: number;
+}
+
 export interface AppointmentSummary {
   total_citas_hoy: number;
   pendientes: number;

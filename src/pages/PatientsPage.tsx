@@ -4,13 +4,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, ApiError } from '../services/api';
-import { Patient, Appointment, Page } from '../types';
+import { Patient, Appointment, Page, ClinicalRecord, ClinicalRecordCreateInput } from '../types';
 import { requestScheduleAppointment } from '../services/scheduleRequest';
 import { setPatientFichaListener } from '../services/patientActions';
 import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
   Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
-  X, CalendarPlus, Clock
+  X, CalendarPlus, Clock, Printer, Plus, ClipboardList, History, Edit3
 } from 'lucide-react';
 
 export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
@@ -555,24 +555,48 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
   onClose: () => void;
   onSchedule: (patientId: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<'appointments' | 'clinical'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [records, setRecords] = useState<ClinicalRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
+  const [showRecordForm, setShowRecordForm] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<ClinicalRecord | null>(null);
+  const [savingRecord, setSavingRecord] = useState(false);
+
+  const loadHistory = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.getAppointments({ patient_id: patient.id, limit: 100 });
+      setAppointments(data.appointments || []);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al cargar el historial');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRecords = async () => {
+    setRecordsLoading(true);
+    setRecordsError('');
+    try {
+      const data = await api.getPatientRecords(patient.id);
+      setRecords(data.records || []);
+    } catch (err) {
+      setRecordsError(err instanceof ApiError ? err.message : 'Error al cargar la historia clínica');
+    } finally {
+      setRecordsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadHistory = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await api.getAppointments({ patient_id: patient.id, limit: 100 });
-        setAppointments(data.appointments || []);
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Error al cargar el historial');
-      } finally {
-        setLoading(false);
-      }
-    };
     loadHistory();
+    loadRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient.id]);
 
   // Estadísticas del paciente (excluye citas canceladas)
@@ -598,6 +622,128 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
   const fmtMoney = (v: number) =>
     `$${v.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
+  const submitRecord = async (payload: ClinicalRecordCreateInput) => {
+    setSavingRecord(true);
+    setRecordsError('');
+    try {
+      if (editingRecord) {
+        await api.updateClinicalRecord(editingRecord.id, payload);
+      } else {
+        await api.createClinicalRecord(patient.id, payload);
+      }
+      setShowRecordForm(false);
+      setEditingRecord(null);
+      await loadRecords();
+    } catch (err) {
+      setRecordsError(err instanceof ApiError ? err.message : 'Error al guardar la evolución');
+    } finally {
+      setSavingRecord(false);
+    }
+  };
+
+  const handleDeleteRecord = async (r: ClinicalRecord) => {
+    if (!confirm('¿Eliminar esta evolución de la historia clínica?')) return;
+    try {
+      await api.deleteClinicalRecord(r.id);
+      await loadRecords();
+    } catch (err) {
+      setRecordsError(err instanceof ApiError ? err.message : 'Error al eliminar la evolución');
+    }
+  };
+
+  const esc = (s?: string | null) =>
+    (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const handlePrint = () => {
+    const w = window.open('', '_blank', 'width=900,height=760');
+    if (!w) return;
+    const rows = records
+      .map((r) => {
+        const chip = (label: string, value?: string | null) =>
+          value ? `<tr><th>${esc(label)}</th><td>${esc(value)}</td></tr>` : '';
+        return `
+        <div class="evo">
+          <div class="evo-head">
+            <span class="fecha">${esc(fmtDate(r.fecha))}</span>
+            <span class="terapeuta">Terapeuta: ${r.therapist_name ? esc(r.therapist_name) : '—'}</span>
+          </div>
+          <table class="datos">
+            ${chip('Zona tratada', r.zona_tratada)}
+            ${chip('Tratamiento / Servicio', r.tratamiento_servicio)}
+            ${chip('Productos / Parámetros', r.productos_parametros)}
+            ${chip('Diagnóstico', r.diagnostico)}
+          </table>
+          <p class="obs-title">Observaciones / Evolución</p>
+          <p class="obs">${r.observaciones ? esc(r.observaciones) : '—'}</p>
+        </div>`;
+      })
+      .join('') || '<p class="vacio">Sin evoluciones registradas.</p>';
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Historia Clínica — ${esc(patient.nombre)} ${esc(patient.apellido)}</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; color:#1c1917; margin:0; padding:40px; }
+  .brand { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #0f766e; padding-bottom:12px; }
+  .brand h1 { font-size:22px; margin:0; color:#0f766e; }
+  .brand p { margin:2px 0 0; font-size:12px; color:#78716c; }
+  .titulo { font-size:14px; margin:22px 0 8px; text-transform:uppercase; letter-spacing:1px; color:#44403c; font-weight:700; }
+  .paciente { width:100%; border-collapse:collapse; margin-bottom:4px; }
+  .paciente td, .paciente th { padding:6px 8px; font-size:13px; }
+  .paciente th { text-align:left; color:#78716c; font-weight:600; width:200px; }
+  .paciente td { border-bottom:1px solid #e7e5e4; }
+  .alergias { background:#f5f5f4; border-left:4px solid #dc2626; padding:10px 12px; font-size:13px; }
+  .evo { border:1px solid #e7e5e4; border-radius:8px; padding:12px 14px; margin-bottom:14px; page-break-inside:avoid; }
+  .evo-head { display:flex; justify-content:space-between; border-bottom:1px solid #f0efed; padding-bottom:6px; margin-bottom:8px; }
+  .evo-head .fecha { font-weight:700; color:#0f766e; font-size:13px; }
+  .evo-head .terapeuta { font-size:12px; color:#78716c; }
+  .datos { width:100%; border-collapse:collapse; }
+  .datos th, .datos td { text-align:left; padding:4px 8px 4px 0; font-size:13px; vertical-align:top; }
+  .datos th { color:#78716c; font-weight:600; width:230px; white-space:nowrap; }
+  .obs-title { font-size:12px; font-weight:600; color:#44403c; margin:8px 0 2px; }
+  .obs { font-size:13px; white-space:pre-wrap; margin:0; }
+  .vacio { color:#a8a29e; font-size:13px; }
+  .firma { margin-top:48px; border-top:1px solid #d6d3d1; padding-top:8px; font-size:12px; color:#57534e; }
+  @media print { body { padding:0; } }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <div>
+      <h1>Historia Clínica</h1>
+      <p>Registro de tratamientos y evolución del paciente</p>
+    </div>
+    <div>
+      <p>Generado: ${esc(new Date().toLocaleString('es-ES'))}</p>
+    </div>
+  </div>
+
+  <div class="titulo">Datos del Paciente</div>
+  <table class="paciente">
+    <tr><th>Nombre</th><td>${esc(patient.nombre)} ${esc(patient.apellido)}</td></tr>
+    ${patient.telefono ? `<tr><th>Teléfono</th><td>${esc(patient.telefono)}</td></tr>` : ''}
+    ${patient.email ? `<tr><th>Email</th><td>${esc(patient.email)}</td></tr>` : ''}
+    ${patient.direccion ? `<tr><th>Dirección</th><td>${esc(patient.direccion)}</td></tr>` : ''}
+    ${patient.fecha_nacimiento ? `<tr><th>Fecha de nacimiento</th><td>${esc(fmtDate(patient.fecha_nacimiento))}</td></tr>` : ''}
+  </table>
+
+  <div class="titulo">Alergias / Notas Médicas</div>
+  <div class="alergias">${esc(patient.notas_medicas) || 'Sin alergias ni notas médicas registradas.'}</div>
+
+  <div class="titulo">Evoluciones de Tratamiento (${records.length})</div>
+  ${rows}
+
+  <div class="firma">Firma del profesional: ______________________________________</div>
+</body>
+</html>`;
+
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -621,6 +767,32 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
             title="Cerrar"
           >
             <X size={18} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-stone-100 px-6">
+          <button
+            onClick={() => setActiveTab('appointments')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === 'appointments'
+                ? 'text-emerald-600 border-emerald-500'
+                : 'text-stone-500 border-transparent hover:text-stone-700'
+            }`}
+          >
+            <History size={15} />
+            Historial de Citas
+          </button>
+          <button
+            onClick={() => setActiveTab('clinical')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === 'clinical'
+                ? 'text-emerald-600 border-emerald-500'
+                : 'text-stone-500 border-transparent hover:text-stone-700'
+            }`}
+          >
+            <ClipboardList size={15} />
+            Historia Clínica / Evoluciones
           </button>
         </div>
 
@@ -667,70 +839,202 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
             </div>
           </div>
 
-          {/* Estadísticas */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="p-4 bg-emerald-50 rounded-xl text-center">
-              <p className="text-2xl font-bold text-emerald-700">{totalCitas}</p>
-              <p className="text-xs text-stone-500 mt-1">Citas atendidas</p>
-            </div>
-            <div className="p-4 bg-blue-50 rounded-xl text-center">
-              <p className="text-2xl font-bold text-blue-700">{fmtMoney(totalGastos)}</p>
-              <p className="text-xs text-stone-500 mt-1">Total invertido</p>
-            </div>
-            <div className="p-4 bg-violet-50 rounded-xl text-center">
-              <p className="text-xl font-bold text-violet-700 mt-0.5">{ultimaVisita ? fmtDate(ultimaVisita.toISOString()) : '—'}</p>
-              <p className="text-xs text-stone-500 mt-1">Última visita</p>
-            </div>
-          </div>
+          {activeTab === 'appointments' && (
+            <>
+              {/* Estadísticas */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-4 bg-emerald-50 rounded-xl text-center">
+                  <p className="text-2xl font-bold text-emerald-700">{totalCitas}</p>
+                  <p className="text-xs text-stone-500 mt-1">Citas atendidas</p>
+                </div>
+                <div className="p-4 bg-blue-50 rounded-xl text-center">
+                  <p className="text-2xl font-bold text-blue-700">{fmtMoney(totalGastos)}</p>
+                  <p className="text-xs text-stone-500 mt-1">Total invertido</p>
+                </div>
+                <div className="p-4 bg-violet-50 rounded-xl text-center">
+                  <p className="text-xl font-bold text-violet-700 mt-0.5">{ultimaVisita ? fmtDate(ultimaVisita.toISOString()) : '—'}</p>
+                  <p className="text-xs text-stone-500 mt-1">Última visita</p>
+                </div>
+              </div>
 
-          {/* Historial de citas */}
-          <div>
-            <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wider mb-3">Historial de Citas</h3>
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>
-            )}
-            {loading ? (
-              <div className="space-y-2">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
-                ))}
-              </div>
-            ) : appointments.length === 0 ? (
-              <div className="text-center py-8 bg-stone-50 rounded-xl">
-                <Calendar size={32} className="mx-auto text-stone-300 mb-2" />
-                <p className="text-sm text-stone-400">Este paciente aún no tiene citas registradas</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {appointments.map((a) => (
-                  <div key={a.id} className="p-3 bg-stone-50 rounded-xl">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Clock size={14} className="text-stone-400 shrink-0" />
-                        <span className="text-sm font-semibold text-stone-800">
-                          {fmtDate(a.date_time)} · {fmtTime(a)}h
-                        </span>
-                        <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize shrink-0 ${
-                          fichaStatusColors[a.estado] || 'bg-stone-100 text-stone-600'
-                        }`}>
-                          {fichaStatusLabels[a.estado] || a.estado}
-                        </span>
-                      </div>
-                      <span className="text-sm font-semibold text-stone-700 shrink-0">{fmtMoney(a.precio ?? 0)}</span>
-                    </div>
-                    <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-1 text-xs text-stone-500">
-                      <span className="truncate">Servicio: {a.service || '—'}</span>
-                      <span className="truncate">Terapeuta: {a.therapist || '—'}</span>
-                      <span>{a.duracion} min</span>
-                    </div>
-                    {a.notas && (
-                      <p className="mt-1 text-xs text-stone-500 line-clamp-2">{a.notas}</p>
-                    )}
+              {/* Historial de citas */}
+              <div>
+                <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wider mb-3">Historial de Citas</h3>
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>
+                )}
+                {loading ? (
+                  <div className="space-y-2">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
+                    ))}
                   </div>
-                ))}
+                ) : appointments.length === 0 ? (
+                  <div className="text-center py-8 bg-stone-50 rounded-xl">
+                    <Calendar size={32} className="mx-auto text-stone-300 mb-2" />
+                    <p className="text-sm text-stone-400">Este paciente aún no tiene citas registradas</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {appointments.map((a) => (
+                      <div key={a.id} className="p-3 bg-stone-50 rounded-xl">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Clock size={14} className="text-stone-400 shrink-0" />
+                            <span className="text-sm font-semibold text-stone-800">
+                              {fmtDate(a.date_time)} · {fmtTime(a)}h
+                            </span>
+                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize shrink-0 ${
+                              fichaStatusColors[a.estado] || 'bg-stone-100 text-stone-600'
+                            }`}>
+                              {fichaStatusLabels[a.estado] || a.estado}
+                            </span>
+                          </div>
+                          <span className="text-sm font-semibold text-stone-700 shrink-0">{fmtMoney(a.precio ?? 0)}</span>
+                        </div>
+                        <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-1 text-xs text-stone-500">
+                          <span className="truncate">Servicio: {a.service || '—'}</span>
+                          <span className="truncate">Terapeuta: {a.therapist || '—'}</span>
+                          <span>{a.duracion} min</span>
+                        </div>
+                        {a.notas && (
+                          <p className="mt-1 text-xs text-stone-500 line-clamp-2">{a.notas}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
+
+          {activeTab === 'clinical' && (
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wider">
+                  Historia Clínica
+                  <span className="ml-2 text-xs font-normal normal-case text-stone-400">
+                    ({records.length} evoluciones)
+                  </span>
+                </h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handlePrint}
+                    disabled={records.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-stone-200 rounded-xl text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Imprimir historia clínica"
+                  >
+                    <Printer size={14} />
+                    Imprimir
+                  </button>
+                  <button
+                    onClick={() => { setEditingRecord(null); setShowRecordForm(true); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-xs font-medium hover:from-emerald-600 hover:to-teal-700 transition-all"
+                  >
+                    <Plus size={14} />
+                    Nueva Evolución
+                  </button>
+                </div>
+              </div>
+
+              {recordsError && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{recordsError}</div>
+              )}
+
+              {showRecordForm && (
+                <ClinicalRecordFormModal
+                  patient={patient}
+                  record={editingRecord}
+                  saving={savingRecord}
+                  onSubmit={submitRecord}
+                  onCancel={() => { setShowRecordForm(false); setEditingRecord(null); }}
+                />
+              )}
+
+              {!showRecordForm && recordsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : !showRecordForm && records.length === 0 ? (
+                <div className="text-center py-10 bg-stone-50 rounded-xl">
+                  <ClipboardList size={32} className="mx-auto text-stone-300 mb-2" />
+                  <p className="text-sm text-stone-400">
+                    Aún no hay evoluciones registradas en la historia clínica
+                  </p>
+                </div>
+              ) : (
+                !showRecordForm && (
+                  <div className="space-y-3">
+                    {records.map((r) => (
+                      <div key={r.id} className="p-4 bg-stone-50 rounded-xl border border-stone-100">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                            <span className="text-sm font-semibold text-stone-800">{fmtDate(r.fecha)}</span>
+                            {r.therapist_name && (
+                              <span className="inline-flex items-center gap-1 text-xs text-stone-500 truncate">
+                                <Stethoscope size={12} className="text-stone-400 shrink-0" />
+                                {r.therapist_name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => { setEditingRecord(r); setShowRecordForm(true); }}
+                              className="p-1.5 rounded-lg hover:bg-stone-200 text-stone-400 hover:text-emerald-600 transition-colors"
+                              title="Editar evolución"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRecord(r)}
+                              className="p-1.5 rounded-lg hover:bg-stone-200 text-stone-400 hover:text-red-500 transition-colors"
+                              title="Eliminar evolución"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        {(r.zona_tratada || r.tratamiento_servicio) && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {r.zona_tratada && (
+                              <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-emerald-50 text-emerald-700">
+                                {r.zona_tratada}
+                              </span>
+                            )}
+                            {r.tratamiento_servicio && (
+                              <span className="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full bg-sky-50 text-sky-700">
+                                {r.tratamiento_servicio}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {r.productos_parametros && (
+                          <p className="mt-2 text-xs text-stone-500">
+                            <span className="font-medium text-stone-600">Productos / Parámetros:</span>{' '}
+                            {r.productos_parametros}
+                          </p>
+                        )}
+                        {r.diagnostico && (
+                          <p className="mt-1 text-xs text-stone-500">
+                            <span className="font-medium text-stone-600">Diagnóstico / Valoración:</span>{' '}
+                            {r.diagnostico}
+                          </p>
+                        )}
+                        {r.observaciones && (
+                          <p className="mt-2 text-sm text-stone-700 border-t border-stone-200 pt-2 whitespace-pre-wrap">
+                            {r.observaciones}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -751,5 +1055,147 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
         </div>
       </div>
     </div>
+  );
+}
+
+function ClinicalRecordFormModal({ patient, record, saving, onSubmit, onCancel }: {
+  patient: Patient;
+  record: ClinicalRecord | null;
+  saving: boolean;
+  onSubmit: (payload: ClinicalRecordCreateInput) => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState({
+    fecha: record?.fecha ? record.fecha.slice(0, 10) : new Date().toISOString().slice(0, 10),
+    zona_tratada: record?.zona_tratada || '',
+    tratamiento_servicio: record?.tratamiento_servicio || '',
+    productos_parametros: record?.productos_parametros || '',
+    observaciones: record?.observaciones || '',
+    diagnostico: record?.diagnostico || '',
+  });
+  const [error, setError] = useState('');
+
+  const inputClass =
+    'w-full px-3 py-2 border border-stone-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 outline-none bg-white transition';
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.tratamiento_servicio.trim() && !form.zona_tratada.trim()) {
+      setError('Indica al menos la zona tratada o el tratamiento realizado');
+      return;
+    }
+    setError('');
+    onSubmit({
+      fecha: form.fecha ? `${form.fecha}T00:00:00` : undefined,
+      zona_tratada: form.zona_tratada.trim() || null,
+      tratamiento_servicio: form.tratamiento_servicio.trim() || null,
+      productos_parametros: form.productos_parametros.trim() || null,
+      observaciones: form.observaciones.trim() || null,
+      diagnostico: form.diagnostico.trim() || null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 bg-white border border-stone-200 rounded-2xl shadow-sm mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-semibold text-stone-700">
+          {record ? 'Editar Evolución' : 'Nueva Evolución Clínica'}
+        </h4>
+        <span className="text-xs text-stone-400">{patient.nombre} {patient.apellido}</span>
+      </div>
+
+      <p className="text-xs text-stone-500 italic mb-3">
+        Escribe la zona tratada, el tratamiento/servicio, los productos/parámetros utilizados y la
+        evaluación de la sesión. Quedará registrado como evolución en la historia clínica.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+        <div>
+          <label className="block text-xs font-medium text-stone-500 mb-1">Fecha</label>
+          <input
+            type="date"
+            required
+            value={form.fecha}
+            onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-stone-500 mb-1">Zona tratada</label>
+          <input
+            type="text"
+            value={form.zona_tratada}
+            onChange={(e) => setForm((f) => ({ ...f, zona_tratada: e.target.value }))}
+            placeholder="Ej: Rostro, Espalda..."
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-stone-500 mb-1">Tratamiento / Servicio</label>
+          <input
+            type="text"
+            value={form.tratamiento_servicio}
+            onChange={(e) => setForm((f) => ({ ...f, tratamiento_servicio: e.target.value }))}
+            placeholder="Ej: Radiofrecuencia, Masaje descontracturante..."
+            className={inputClass}
+          />
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-stone-500 mb-1">Productos / Parámetros aplicados</label>
+        <textarea
+          rows={2}
+          value={form.productos_parametros}
+          onChange={(e) => setForm((f) => ({ ...f, productos_parametros: e.target.value }))}
+          placeholder="Productos cosmetológicos, intensidad, potencia, tiempo, etc."
+          className={`${inputClass} resize-y`}
+        />
+      </div>
+
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-stone-500 mb-1">Diagnóstico / Valoración</label>
+        <textarea
+          rows={2}
+          value={form.diagnostico}
+          onChange={(e) => setForm((f) => ({ ...f, diagnostico: e.target.value }))}
+          placeholder="Diagnóstico o valoración de la sesión"
+          className={`${inputClass} resize-y`}
+        />
+      </div>
+
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-stone-500 mb-1">Observaciones / Evolución del paciente</label>
+        <textarea
+          rows={3}
+          value={form.observaciones}
+          onChange={(e) => setForm((f) => ({ ...f, observaciones: e.target.value }))}
+          placeholder="Describe la evolución del paciente, reacciones, recomendaciones..."
+          className={`${inputClass} resize-y`}
+        />
+      </div>
+
+      {error && (
+        <div className="mb-3 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-4 py-2 border border-stone-200 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 inline-flex items-center gap-2"
+        >
+          {saving ? 'Guardando...' : record ? 'Guardar Cambios' : 'Registrar Evolución'}
+        </button>
+      </div>
+    </form>
   );
 }
