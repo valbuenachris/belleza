@@ -20,6 +20,11 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models.patient import Patient
 from ..models.tenant import Tenant
+from .pass_signer import (
+    is_signing_configured,
+    sign_manifest,
+    warn_if_unconfigured,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +72,39 @@ def _push_pass_update(tokens: List[str]) -> None:
     """
     Hilo worker (fire-and-forget): envía el push APNs a cada dispositivo
     registrado. No toca sesiones de BD ni bloquea la respuesta HTTP.
+    Registra el resultado por dispositivo (solo el sufijo del token).
     """
     from .apns_push import send_pass_update_push
 
+    ok = 0
     for token in tokens:
+        suffix = f"...{token[-6:]}" if token else ""
         try:
-            send_pass_update_push(token)
+            if send_pass_update_push(token):
+                ok += 1
+            else:
+                logger.warning(f"[Fidelidad][APNS] Push rechazado u omitido (push={suffix})")
         except Exception as e:
-            logger.warning(f"[Fidelidad] Push APNs fallido: {e}")
+            logger.warning(f"[Fidelidad][APNS] Push fallido (push={suffix}): {e}")
+    logger.info(f"[Fidelidad][APNS] Push terminado: {ok}/{len(tokens)} notificaciones enviadas")
+
+
+def maybe_sync_google_wallet(patient_id) -> None:
+    """
+    Dispara la sincronización asíncrona del paciente con Google Wallet
+    tras un cambio de puntos/sesiones (fire-and-forget).
+
+    Es best-effort y totalmente aislado de la transacción de BD: usa su
+    propia sesión (SessionLocal) en un hilo daemon, nunca lanza
+    excepciones y NO afecta si la integración está deshabilitada (en ese
+    caso no hace absolutamente nada).
+    """
+    try:
+        from .google_wallet_service import maybe_sync_patient_async
+
+        maybe_sync_patient_async(patient_id)
+    except Exception as e:
+        logger.warning(f"[Fidelidad][GWallet] No se pudo sincronizar: {e}")
 
 
 def notify_pass_update(db: Session, patient: Patient) -> int:
@@ -90,6 +120,7 @@ def notify_pass_update(db: Session, patient: Patient) -> int:
         Número de push tokens recolectados (0 si no hay dispositivos).
     """
     tokens: List[str] = []
+    registrations = []
     try:
         from ..models.pass_registration import PassRegistration
 
@@ -99,14 +130,29 @@ def notify_pass_update(db: Session, patient: Patient) -> int:
         )
         if patient.wallet_pass_id:
             query = query.filter(PassRegistration.serial_number == patient.wallet_pass_id)
-        tokens = [reg.push_token for reg in query.all() if reg.push_token]
+        registrations = query.all()
+        tokens = [reg.push_token for reg in registrations if reg.push_token]
     except Exception as e:
         logger.warning(f"[Fidelidad] No se pudo recolectar dispositivos registrados: {e}")
         return 0
 
-    if tokens:
+    if not registrations:
+        logger.warning(
+            "[WALLET][PUSH] Sin dispositivos registrados para el pase "
+            f"serial={patient.wallet_pass_id}. El dispositivo NO re-registró "
+            "o el pase instalado aún no declara webServiceURL/authenticationToken."
+        )
+    elif not tokens:
+        logger.warning(
+            f"[WALLET][PUSH] {len(registrations)} dispositivo(s) registrado(s) "
+            "pero sin push token APNs; no se puede notificar."
+        )
+    else:
         threading.Thread(target=_push_pass_update, args=(tokens,), daemon=True).start()
-        logger.info(f"[Fidelidad] Pase de {patient.id}: push programado para {len(tokens)} dispositivo(s)")
+        logger.info(
+            f"[WALLET][PUSH] Pase de {patient.id} (serial={patient.wallet_pass_id}): "
+            f"push programado para {len(tokens)} dispositivo(s) registrado(s)"
+        )
     return len(tokens)
 
 
@@ -191,6 +237,10 @@ def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
     # Notifica a los dispositivos registrados (push APNs, best-effort).
     notify_pass_update(db, patient)
 
+    # NOTA: la sincronización con Google Wallet (update_loyalty_object) la
+    # realiza el endpoint de scan después de este commit, de forma síncrona
+    # y fail-safe, para evitar dobles PATCHs al mismo objeto.
+
     return {
         "puntos": patient.puntos,
         "sesiones_gratis": patient.sesiones_gratis,
@@ -227,6 +277,9 @@ def redeem_free_session(db: Session, patient: Patient) -> dict:
 
     # Notifica a los dispositivos registrados (push APNs, best-effort).
     notify_pass_update(db, patient)
+
+    # Sincroniza con Google Wallet (async, best-effort, nunca bloquea).
+    maybe_sync_google_wallet(patient.id)
 
     return {
         "message": "Sesión gratuita canjeada exitosamente",
@@ -430,9 +483,10 @@ def _pkpass_fields(patient: Patient, tenant=None, tenant_name: Optional[str] = N
     }
 
     # Apple Wallet Web Service: solo se declara webServiceURL si existe el
-    # authenticationToken (son inseparables en pass.json). Ambos permiten
-    # que el dispositivo se registre y reciba pases actualizados.
-    if patient.wallet_auth_token:
+    # authenticationToken Y una URL base pública configurada (son
+    # inseparables en pass.json). Ambos permiten que el dispositivo se
+    # registre y reciba pases actualizados.
+    if patient.wallet_auth_token and _wallet_service_url():
         pass_fields["webServiceURL"] = _wallet_service_url()
         pass_fields["authenticationToken"] = patient.wallet_auth_token
 
@@ -443,9 +497,11 @@ def build_pkpass_zip(patient: Patient, tenant=None, tenant_name: Optional[str] =
     """
     Construye el archivo .pkpass (zip) de Apple Wallet en memoria.
 
-    Contiene pass.json (datos del pase) y manifest.json (hashes SHA1 de
-    cada archivo). La firma (signature) con los certificados de Apple se
-    agregará en una fase posterior una vez registrados los IDs oficiales.
+    Contiene pass.json (datos del pase), manifest.json (hashes SHA1 de
+    cada archivo) y, si hay certificados configurados para firmar, la
+    firma PKCS#7/CMS (signature) de manifest.json. Sin credenciales el
+    pase se genera sin firma (warning en logs) para mantener el flujo
+    de prueba actual hasta que se emitan los certificados oficiales.
 
     Returns:
         bytes del archivo .pkpass
@@ -458,10 +514,20 @@ def build_pkpass_zip(patient: Patient, tenant=None, tenant_name: Optional[str] =
     }
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
+    signature_bytes = None
+    if is_signing_configured():
+        signature_bytes = sign_manifest(manifest_bytes)
+        if signature_bytes is None:
+            logger.warning("[WALLET][PKPASS] No se pudo firmar el pase; se entrega sin firma")
+    else:
+        warn_if_unconfigured()
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("pass.json", pass_bytes)
         zf.writestr("manifest.json", manifest_bytes)
+        if signature_bytes:
+            zf.writestr("signature", signature_bytes)
 
     return buffer.getvalue()
 

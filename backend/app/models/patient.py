@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import String, Date, DateTime, Text, Integer, Index
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -106,9 +107,35 @@ class Patient(Base, TenantBaseModel):
         comment="authenticationToken del pase (cabecera ApplePass del web service)",
     )
     wallet_updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime,
+        mysql.DATETIME(fsp=6),
         nullable=True,
         comment="Última actualización de puntos/sesiones (Last-Modified / If-Modified-Since)",
+    )
+
+    # ----------------------------------------------------------
+    # Google Wallet (LoyaltyClass / LoyaltyObject integration)
+    # ----------------------------------------------------------
+    google_wallet_object_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+        comment=(
+            "Id del LoyaltyObject en Google Wallet "
+            "(formato {issuer_id}.{patient_id}). Se crea al sincronizar."
+        ),
+    )
+    google_wallet_class_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment=(
+            "Id del LoyaltyClass usado para este objeto "
+            "(per-tenant: {issuer_id}.loyalty-class-{tenant_id})."
+        ),
+    )
+    google_wallet_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        nullable=True,
+        comment="Última sincronización exitosa con Google Wallet (para diagnóstico)",
     )
 
     # ----------------------------------------------------------

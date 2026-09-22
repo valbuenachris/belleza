@@ -74,23 +74,89 @@ class Settings(BaseSettings):
     # Apple Wallet Web Service (actualización dinámica de pases)
     # ----------------------------------------------------------
     # URL base pública del web service de Apple (sin barra final, https).
-    # Debe apuntar a la raíz del backend expuesto públicamente; por
-    # defecto se usa el mismo host que la web si nginx proxea /v1/* al
-    # contenedor del backend.
+    # Debe apuntar a la raíz del backend expuesto públicamente; nginx debe
+    # proxear /v1/* al contenedor del backend (ver frontend/nginx.conf).
     WALLET_WEB_SERVICE_BASE_URL: str = "https://estetica.tienderu.com"
-    # APNs (Apple Push Notification Service) - OPCIONAL. El push es lo
-    # que dispara la descarga automática del pase actualizado en el
-    # dispositivo; el web service (registro y paso del pase) funciona
-    # igual sin APNs configurado.
+    # APNs (Apple Push Notification Service). El push es lo que dispara
+    # la descarga automática del pase actualizado en el dispositivo.
+    # Si se deja APNS_ENABLED=false pero se configuran las credenciales
+    # .p8, el push se ACTIVA automáticamente (auto-detección).
     APNS_ENABLED: bool = False
     APNS_SANDBOX: bool = False
     # JWT de proveedor (AuthKey_<id>.p8 que descargas de APNs Keys).
     APNS_KEY_ID: str = ""
     APNS_TEAM_ID: str = ""
     APNS_P8_PATH: str = ""
-    # Topic del push = passTypeIdentifier del pase.
+    # Topic del push = passTypeIdentifier del pase (NO el bundle del app).
     APNS_TOPIC: str = "pass.com.tuuspa.fidelidad"
-    
+    # Cabecera apns-push-type: para pases se usa 'background' (push
+    # silencioso sin interacción del usuario). 'passkit-update' NO es un
+    # valor válido y APNs lo rechaza con 400 BadPushType.
+    APNS_PUSH_TYPE: str = "background"
+    # apns-priority: para push-type=background DEBE ser 5; 10 es error.
+    APNS_PRIORITY: int = 5
+    # TTL en segundos del push (APNs lo guarda si el dispositivo está
+    # offline y lo entrega al reconectarse). 0 = descartar si offline.
+    APNS_EXPIRATION: int = 86400
+
+    # ----------------------------------------------------------
+    # Firma del .pkpass (PKCS#7/CMS DER)
+    # ----------------------------------------------------------
+    # OPCIONAL: si se configuran los tres archivos, el pase se genera
+    # firmado (Apple exige la firma en producción). Sin ellos el pase se
+    # genera sin firma (para pruebas/dev) con un warning en los logs.
+    #   PASS_SIGNER_CERT_PATH -> certificado del Pass Type ID (PEM)
+    #   PASS_SIGNER_KEY_PATH  -> clave privada del certificado (PEM)
+    #   PASS_WWDR_CERT_PATH   -> certificado intermedio WWDR de Apple (PEM)
+    PASS_SIGNER_CERT_PATH: str = ""
+    PASS_SIGNER_KEY_PATH: str = ""
+    PASS_WWDR_CERT_PATH: str = ""
+
+    # ----------------------------------------------------------
+    # Google Wallet (LoyaltyClass / LoyaltyObject - REST API)
+    # ----------------------------------------------------------
+    # Integración real con Google Wallet API v1 (walletobjects). Habilita
+    # crear la clase de fidelidad y objetos por paciente, generar el enlace
+    # "Añadir a Google Wallet" (savetowallet JWT) y sincronizar puntos en
+    # tiempo real (PATCH + notifyPreference). Mientras no haya credenciales
+    # reales de Google Cloud, GOOGLE_WALLET_ENABLED=false: el sistema opera
+    # igual (solo Apple Wallet .pkpass) sin llamar a ninguna API de Google.
+    GOOGLE_WALLET_ENABLED: bool = False
+    # ID del emisor (issuer id) que entrega Google Cloud en "Google Wallet
+    # API" -> "Issuer account". Es un número; NUNCA se debe inventar.
+    GOOGLE_WALLET_ISSUER_ID: str = ""
+    # Id de la clase de fidelidad. Si se deja vacío, se genera automáticamente
+    # por tenant (recomendado): "{issuer}.loyalty-class-{tenant_id}".
+    GOOGLE_WALLET_CLASS_ID: str = ""
+    # Cuenta de servicio de Google Cloud (email del .json de credenciales).
+    GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL: str = ""
+    # Clave privada RSA de la cuenta de servicio. Se acepta el PEM tal cual
+    # (con saltos de línea) o codificado en base64 (del .json de credenciales).
+    GOOGLE_WALLET_PRIVATE_KEY: str = ""
+    GOOGLE_WALLET_PRIVATE_KEY_ID: str = ""
+    GOOGLE_WALLET_PROJECT_ID: str = ""
+    # Ruta al .json de la cuenta de servicio para Application Default
+    # Credentials (ADC estándar de google-auth). Es la vía preferida: el
+    # archivo se monta como volumen de solo lectura en el contenedor.
+    # Prioridad frente a GOOGLE_WALLET_SERVICE_ACCOUNT_FILE / PRIVATE_KEY.
+    GOOGLE_APPLICATION_CREDENTIALS: str = "/app/google-credentials/service-account.json"
+    # Alternativa: ruta al archivo .json de la cuenta de servicio (montado
+    # como secret/volume) si se prefiere una ruta distinta de la ADC.
+    GOOGLE_WALLET_SERVICE_ACCOUNT_FILE: str = ""
+    # Scope OAuth2 para crear/con servers de wallet objects (valor oficial).
+    GOOGLE_WALLET_SCOPE: str = (
+        "https://www.googleapis.com/auth/wallet_object.issuer"
+    )
+    # Dominio permitido para el botón de guardado (claim "origins" del JWT).
+    # Vacío => se deriva del host de WALLET_WEB_SERVICE_BASE_URL.
+    GOOGLE_WALLET_ORIGIN: str = ""
+    # Endpoints de la API de Google (valores oficiales; overridable para QA).
+    GOOGLE_WALLET_API_BASE: str = (
+        "https://walletobjects.googleapis.com/walletobjects/v1"
+    )
+    GOOGLE_WALLET_OAUTH_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
+    GOOGLE_WALLET_SAVE_BASE_URL: str = "https://pay.google.com/gp/v/save"
+
     # ----------------------------------------------------------
     # Docker
     # ----------------------------------------------------------

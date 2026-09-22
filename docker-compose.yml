@@ -2,44 +2,10 @@
 # docker-compose.yml - Sistema de Gestión Integral para SPAs
 # Arquitectura Multitenant
 # ============================================================
-# Uso: docker compose up -d
-#   - Dev:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-#   - Prod: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Base de datos externa configurada mediante .env
 # ============================================================
 
 services:
-  # ----------------------------------------------------------
-  # MySQL 8 - Base de datos principal
-  # En la PRIMERA inicialización ejecuta los scripts de
-  # database/ (init.sql, schema.sql, seed.sql) en orden.
-  # ----------------------------------------------------------
-  mysql:
-    image: mysql:8.0
-    container_name: spa_mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secure_password}
-      MYSQL_DATABASE: ${DB_NAME:-spa_management}
-      MYSQL_USER: ${DB_USER:-spa_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-spa_secure_password}
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - spa_network
-    restart: unless-stopped
 
   # ----------------------------------------------------------
   # Backend - FastAPI con Uvicorn/Gunicorn
@@ -56,14 +22,16 @@ services:
     environment:
       - DEBUG=false
       - ENVIRONMENT=production
+      - GOOGLE_WALLET_ENABLED=${GOOGLE_WALLET_ENABLED}
+      - GOOGLE_WALLET_ISSUER_ID=${GOOGLE_WALLET_ISSUER_ID}
+      - GOOGLE_WALLET_CLASS_ID=${GOOGLE_WALLET_CLASS_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      # Montar código fuente para hot-reload (opcional en prod, útil en dev)
       - ./backend/app:/app/app
+      - ./google-creds/service-account.json:/app/google-credentials/service-account.json:ro
     networks:
       - spa_network
     restart: unless-stopped
@@ -75,7 +43,7 @@ services:
       start_period: 40s
 
   # ----------------------------------------------------------
-  # Frontend - Nginx sirviendo archivos estáticos HTML/CSS/JS
+  # Frontend - Nginx sirviendo archivos estáticos
   # ----------------------------------------------------------
   frontend:
     build:
@@ -83,16 +51,15 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: spa_frontend
     ports:
-      - "8088:80"  # Cambiado a 8088 para evitar conflicto con el puerto 80 del servidor
+      - "8088:80"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - spa_network
+      - npm_npm_net
     restart: unless-stopped
     healthcheck:
-      # Se consulta 127.0.0.1 (no "localhost") para evitar fallos por
-      # resolución a IPv6 (::1) en la imagen nginx:alpine.
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
       interval: 30s
       timeout: 5s
@@ -119,28 +86,6 @@ services:
       - spa_network
     restart: unless-stopped
 
-  # ----------------------------------------------------------
-  # phpMyAdmin - Solo se levanta con el perfil "development"
-  #   docker compose --profile development up -d
-  # ----------------------------------------------------------
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: spa_phpmyadmin
-    profiles:
-      - development
-    environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-      PMA_ARBITRARY: "1"
-    ports:
-      - "8080:80"
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - spa_network
-    restart: unless-stopped
-
 # ============================================================
 # Redes
 # ============================================================
@@ -149,13 +94,16 @@ networks:
     driver: bridge
     name: spa_management_network
 
+  npm_npm_net:
+    external: true
+
 # ============================================================
 # Volúmenes persistentes
 # ============================================================
 volumes:
-  mysql_data:
-    driver: local
-    name: spa_mysql_data
   redis_data:
     driver: local
     name: spa_redis_data
+
+  # El antiguo volumen de MySQL NO se elimina todavía.
+  # Se conserva como respaldo hasta confirmar que ya no se necesita.

@@ -29,6 +29,7 @@ import {
   WalletPassData,
   RedeemSessionResult,
   ScanLoyaltyResult,
+  GoogleWalletSaveData,
   UserCreate,
   UserUpdate,
   UsersResponse,
@@ -645,6 +646,10 @@ export const api = {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  },
+
+  async getGoogleWalletSaveLink(patientId: string): Promise<GoogleWalletSaveData> {
+    return request<GoogleWalletSaveData>(`/patients/${patientId}/google-wallet`);
   },
 
   async redeemSession(patientId: string): Promise<RedeemSessionResult> {

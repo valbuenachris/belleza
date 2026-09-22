@@ -19,7 +19,9 @@ from ..models.pass_registration import PassRegistration
 from ..models.patient import Patient
 from ..models.tenant import Tenant
 from ..models.user import User
+from ..config import settings
 from ..services import loyalty_service
+from ..services import google_wallet_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/patients", tags=["Programa de Fidelidad"])
@@ -115,15 +117,84 @@ def get_wallet_pass(
             **data,
         }
 
-    # Apple Wallet: archivo .pkpass (zip con pass.json + manifest.json)
+    # Apple Wallet: archivo .pkpass (zip con pass.json + manifest.json
+    # + firma). Se incluye Last-Modified para que el dispositivo arranque
+    # con el mismo tag que usará después en If-Modified-Since.
     pkpass_bytes = loyalty_service.build_pkpass_zip(patient, tenant)
     filename = f"fidelidad-{str(patient.id)[:8]}.pkpass"
+
+    last_modified_dt = (
+        patient.wallet_updated_at or patient.updated_at or patient.created_at
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if last_modified_dt is not None:
+        headers["Last-Modified"] = _http_date(last_modified_dt)
 
     return Response(
         content=pkpass_bytes,
         media_type="application/vnd.apple.pkpass",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=headers,
     )
+
+
+# ============================================================
+# GET /api/v1/patients/{id}/google-wallet
+# Enlace oficial "Añadir a Google Wallet" para el paciente.
+# El JWT savetowallet se firma localmente (offline, sin llamar a la
+# API de Google). Si la integración no está habilitada, devuelve
+# enabled=false para que la UI lo comunique sin romper el flujo.
+# ============================================================
+
+@router.get(
+    "/{patient_id}/google-wallet",
+    summary="Obtener enlace 'Añadir a Google Wallet' del paciente",
+    description=(
+        "Genera el enlace oficial https://pay.google.com/gp/v/save/{jwt} "
+        "con la tarjeta de fidelidad del paciente (LoyaltyClass/LoyaltyObject "
+        "dentro del JWT firmado con la cuenta de servicio). Devuelve "
+        "enabled=false si Google Wallet no está configurado en el sistema."
+    ),
+)
+def get_google_wallet_save_link(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    patient = _get_patient_or_404(db, tenant_id, patient_id)
+
+    if not (settings.GOOGLE_WALLET_ENABLED and google_wallet_service.is_configured()):
+        return {
+            "enabled": False,
+            "patient_id": str(patient.id),
+            "message": (
+                "Google Wallet no está habilitado en este sistema. "
+                "Configúralo en el backend (GOOGLE_WALLET_ENABLED y credenciales)."
+            ),
+        }
+
+    try:
+        result = google_wallet_service.generate_save_url(db, patient, tenant=None)
+    except Exception as e:
+        logger.error(f"[GWallet] No se pudo generar el enlace de guardado: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar el enlace de Google Wallet. Revisa la configuración.",
+        )
+
+    # Asegura (asíncrono, best-effort) que clase y objeto existan en Google
+    # para que los próximos PATCH de balance lleguen sin crear el objeto.
+    google_wallet_service.maybe_sync_patient_async(patient.id)
+
+    return {
+        "enabled": True,
+        "patient_id": str(patient.id),
+        "save_url": result["save_url"],
+        "object_id": result["object_id"],
+        "class_id": result["class_id"],
+        "wallet_pass_id": result["wallet_pass_id"],
+        "message": "Enlace generado. Ábrelo en un dispositivo con Google Wallet.",
+    }
 
 
 # ============================================================
@@ -185,6 +256,14 @@ def scan_add_point(
 
     result = loyalty_service.award_loyalty_points(db, patient, tenant)
 
+    # Sincroniza el LoyaltyObject con Google Wallet (solo si está habilitado).
+    # Fail-safe: nunca lanza ni afecta a la respuesta del endpoint. La
+    # actualización de la BD ya está commiteada en award_loyalty_points.
+    if settings.GOOGLE_WALLET_ENABLED:
+        google_wallet_service.update_loyalty_object(
+            str(patient.id), patient.puntos or 0, patient.sesiones_gratis or 0
+        )
+
     mensaje = "Estrella registrada correctamente."
     if result["sesion_gratis_otorgada"]:
         mensaje = f"¡Meta alcanzada! Se otorgó: {result['premio']}."
@@ -234,6 +313,47 @@ def scan_redeem(
         "puntos_meta": config["puntos_meta"],
         "premio": config["premio_fidelidad"],
         "sesiones_gratis": result["sesiones_gratis"],
+    }
+
+
+# ============================================================
+# GET /api/v1/loyalty/google-wallet/status
+# Diagnóstico de la integración con Google Wallet (sin secretos).
+# Indica si está habilitada, si las credenciales están completas y
+# qué parámetros faltan, para poder debuggear sin exponer claves.
+# ============================================================
+
+@scan_router.get(
+    "/google-wallet/status",
+    summary="Estado de la integración con Google Wallet",
+    description=(
+        "Devuelve si Google Wallet está habilitado y bien configurado, "
+        "junto con los campos que faltan (sin exponer secretos)."
+    ),
+)
+def google_wallet_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    enabled = settings.GOOGLE_WALLET_ENABLED
+    configured = google_wallet_service.is_configured()
+    missing = [] if configured else google_wallet_service.missing_config_fields()
+
+    return {
+        "enabled": enabled,
+        "configured": configured,
+        "origin": google_wallet_service.origin(),
+        "issuer_id": settings.GOOGLE_WALLET_ISSUER_ID or None,
+        "service_account_email": settings.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL or None,
+        "class_id_override": settings.GOOGLE_WALLET_CLASS_ID or None,
+        "class_id_mode": (
+            "manual" if settings.GOOGLE_WALLET_CLASS_ID else "auto-per-tenant"
+        ),
+        "api_base": settings.GOOGLE_WALLET_API_BASE,
+        "scope": settings.GOOGLE_WALLET_SCOPE,
+        "active": enabled and configured,
+        "missing": missing,
     }
 
 
@@ -339,6 +459,36 @@ def _http_date(dt: datetime) -> str:
     return formatdate(dt.replace(tzinfo=timezone.utc).timestamp(), usegmt=True)
 
 
+def _parse_wallet_timestamp(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parsea el tag 'passesUpdatedSince' / 'lastUpdated' que envía Apple
+    (RFC 3339). Tolera fecha-hora con/sin offset y fecha sola.
+    Devuelve un datetime naïve en UTC para comparar con los valores
+    naïve (UTC) que almacena el backend (MySQL DATETIME).
+    """
+    if not value:
+        return None
+    value = (value or "").strip()
+    if not value:
+        return None
+
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d",
+    ):
+        try:
+            parsed = datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    logger.debug(f"[Wallet] passesUpdatedSince no parseable: {value!r}")
+    return None
+
+
 # ------------------------------------------------------------
 # POST /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}
 # Registra el dispositivo para recibir actualizaciones del pase.
@@ -427,7 +577,8 @@ def unregister_wallet_device(
 # ------------------------------------------------------------
 # GET /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}
 # Lista los serialNumbers del pase registrados en el dispositivo.
-#   200 con {serialNumbers, lastUpdated} | 204 si no hay registros.
+#   200 con {serialNumbers, lastUpdated} | 204 si no hay registros
+#   (o si ninguna actualización supera el tag passesUpdatedSince).
 # ------------------------------------------------------------
 
 @wallet_router.get(
@@ -438,6 +589,11 @@ def get_wallet_device_serials(
     device_library_identifier: str,
     pass_type_identifier: str,
     request: Request,
+    passesUpdatedSince: Optional[str] = Query(
+        default=None,
+        alias="passesUpdatedSince",
+        description="Tag (RFC 3339) de la última actualización vista por el dispositivo",
+    ),
     db: Session = Depends(get_db),
 ):
     patient = _authenticate_wallet_request(db, request, pass_type_identifier, None)
@@ -452,7 +608,25 @@ def get_wallet_device_serials(
     if not registrations:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    serial_numbers = [registration.serial_number for registration in registrations]
+    # Filtrar por el tag de actualización (passesUpdatedSince): solo se
+    # devuelven los serialNumbers con cambios posteriores al tag.
+    since = _parse_wallet_timestamp(passesUpdatedSince)
+    serial_numbers = []
+    for registration in registrations:
+        if since is not None:
+            modified = (
+                registration.updated_at
+                or patient.wallet_updated_at
+                or patient.updated_at
+                or patient.created_at
+            )
+            if modified is not None and modified <= since:
+                continue
+        serial_numbers.append(registration.serial_number)
+
+    if not serial_numbers:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     last_updated = _last_modified_dt(patient, registrations)
     return JSONResponse(content={
         "serialNumbers": serial_numbers,

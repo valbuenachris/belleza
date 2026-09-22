@@ -166,6 +166,16 @@ export interface ScanLoyaltyResult {
   sesion_gratis_otorgada?: boolean;
 }
 
+export interface GoogleWalletSaveData {
+  enabled: boolean;
+  patient_id?: string;
+  message?: string;
+  save_url?: string;
+  object_id?: string;
+  class_id?: string;
+  wallet_pass_id?: string | null;
+}
+
 export interface PatientCreateInput {
   nombre: string;
   apellido: string;

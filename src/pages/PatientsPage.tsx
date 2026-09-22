@@ -12,7 +12,7 @@ import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
   Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
   X, CalendarPlus, Clock, Printer, Plus, ClipboardList, History, Edit3,
-  Star, Wallet, Gift
+  Star, Wallet, Gift, Smartphone
 } from 'lucide-react';
 
 export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
@@ -609,6 +609,25 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
     }
   };
 
+  const handleGoogleWallet = async () => {
+    setLoyaltyBusy(true);
+    setLoyaltyMsg('');
+    setLoyaltyErr('');
+    try {
+      const res = await api.getGoogleWalletSaveLink(patient.id);
+      if (res.enabled && res.save_url) {
+        window.open(res.save_url, '_blank', 'noopener,noreferrer');
+        setLoyaltyMsg(res.message || 'Abriendo Google Wallet… Añade la tarjeta a tu cartera.');
+      } else {
+        setLoyaltyErr(res.message || 'Google Wallet no está habilitado en este sistema.');
+      }
+    } catch (err) {
+      setLoyaltyErr(err instanceof ApiError ? err.message : 'Error al generar el enlace de Google Wallet');
+    } finally {
+      setLoyaltyBusy(false);
+    }
+  };
+
   const handleRedeem = async () => {
     if (loyalty.sesiones_gratis <= 0) return;
     setLoyaltyBusy(true);
@@ -934,6 +953,16 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
               >
                 <Wallet size={14} />
                 Añadir a Wallet
+              </button>
+              <button
+                type="button"
+                onClick={handleGoogleWallet}
+                disabled={loyaltyBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Añadir la tarjeta de fidelidad a Google Wallet (Android)"
+              >
+                <Smartphone size={14} />
+                Añadir a Google Wallet
               </button>
               <button
                 type="button"

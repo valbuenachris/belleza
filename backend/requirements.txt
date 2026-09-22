@@ -30,6 +30,12 @@ python-dotenv==1.0.0
 
 # HTTP Client (para testing y llamadas internas)
 httpx==0.26.0
+
+# Google Wallet API v1 (walletobjects) - cliente oficial
+# Autenticación vía Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS).
+# google-api-python-client arrastra google-auth-httplib2/httplib2 automáticamente.
+google-auth==2.27.0
+google-api-python-client==2.155.0
 # HTTP/2 para APNs (Apple Push Notification Service) - requerido por el
 # Apple Wallet Web Service para enviar push de actualización de pases.
 h2==4.1.0

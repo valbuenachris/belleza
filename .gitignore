@@ -40,6 +40,10 @@ logs/
 # Docker
 docker-compose.override.yml
 
+# Google Wallet / GCP service account credentials (NUNCA subirlos)
+*google-wallet-service-account.json
+*.p8
+
 # Datos locales
 mysql_data/
 redis_data/

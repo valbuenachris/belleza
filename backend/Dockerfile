@@ -36,9 +36,10 @@ RUN groupadd -r appuser && \
     mkdir -p /home/appuser && \
     chown -R appuser:appuser /home/appuser
 
-# Instalar curl para healthchecks
+# Instalar curl para healthchecks y openssl para firmar pases .pkpass
+# (Apple Wallet exige firma PKCS#7/CMS en la generación de pases)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl openssl && \
     rm -rf /var/lib/apt/lists/*
 
 # Directorio de trabajo de la aplicación
