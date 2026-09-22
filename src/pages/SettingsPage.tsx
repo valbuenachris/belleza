@@ -2,9 +2,10 @@
 // Página de Configuración - Ajustes del tenant
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
+import { Tenant } from '../types';
 import {
   Settings as SettingsIcon, Building2, Clock, Globe,
   Save, CheckCircle, Bell, Palette, Shield, AlertCircle
@@ -38,6 +39,56 @@ export default function SettingsPage() {
     recordatorioCitas: tenant?.configuracion?.recordatorio_citas ?? true,
     confirmacionCitas: tenant?.configuracion?.confirmacion_citas ?? true,
   });
+
+  // Vuelca el tenant (contexto/auth) sobre el formulario para que los campos
+  // siempre muestren la configuración guardada y nunca queden en blanco.
+  const applyTenantToForm = useCallback((t: Tenant | null) => {
+    if (!t) return;
+    const cfg = t.configuracion;
+    setFormData((prev) => ({
+      nombre: t.nombre || prev.nombre,
+      email: t.email || prev.email,
+      telefono: t.telefono || prev.telefono,
+      direccion: t.direccion || prev.direccion,
+      timezone: t.timezone || prev.timezone,
+      moneda: t.moneda || prev.moneda,
+      horarioApertura: cfg?.horario_apertura || '08:00',
+      horarioCierre: cfg?.horario_cierre || '20:00',
+      diasOperacion:
+        Array.isArray(cfg?.dias_operacion) && cfg!.dias_operacion.length
+          ? cfg!.dias_operacion
+          : [1, 2, 3, 4, 5, 6],
+      duracionCita: cfg?.duracion_cita_default ?? 60,
+      recordatorioCitas: cfg?.recordatorio_citas ?? true,
+      confirmacionCitas: cfg?.confirmacion_citas ?? true,
+    }));
+  }, []);
+
+  // Reconcilia el formulario cada vez que llega/actualiza el tenant en el contexto.
+  useEffect(() => {
+    applyTenantToForm(tenant);
+  }, [tenant, applyTenantToForm]);
+
+  // Refresco best-effort una sola vez por tenant: si el usuario (o el contexto)
+  // no trae la configuración, se intenta leer GET /tenants/{id}. Es silencioso:
+  // los admins normales reciben 403 y se queda la configuración del contexto.
+  const fetchedTenantRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tenant) return;
+    if (fetchedTenantRef.current === tenant.id) return;
+    fetchedTenantRef.current = tenant.id;
+    api
+      .getTenantById(tenant.id)
+      .then((t) => {
+        if (t) {
+          updateTenant(t);
+          applyTenantToForm(t);
+        }
+      })
+      .catch(() => {
+        // Sin permisos (403) o errores de red: usar el tenant del contexto.
+      });
+  }, [tenant, applyTenantToForm, updateTenant]);
 
   const handleSave = async () => {
     if (!tenant) return;

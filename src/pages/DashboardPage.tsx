@@ -96,7 +96,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           label: 'Configura los horarios de tu SPA',
           page: 'settings' as Page,
           icon: <Settings size={16} />,
-          done: Boolean(tenant?.configuracion && tenant.configuracion.horario_apertura),
+          done: Boolean(
+            tenant?.configuracion &&
+            tenant.configuracion.horario_apertura &&
+            tenant.configuracion.horario_cierre
+          ),
         },
         {
           label: 'Crea tu primer servicio',

@@ -5,6 +5,7 @@
 
 import logging
 from datetime import datetime
+from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,36 @@ from ..models.user import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
+
+
+def _serialize_tenant(tenant) -> Dict[str, Any]:
+    """
+    Serializa el tenant completo (incluyendo 'configuracion' y campos de
+    contacto/regional) para que el frontend pueda precargar los ajustes
+    guardados del SPA sin depender del subdominio.
+    """
+    return {
+        "id": str(tenant.id),
+        "nombre": tenant.nombre,
+        "subdominio": tenant.subdominio,
+        "plan": tenant.plan if hasattr(tenant, "plan") else "basic",
+        "activo": getattr(tenant, "is_active", True),
+        "fecha_creacion": tenant.created_at.isoformat() if tenant.created_at else datetime.utcnow().isoformat(),
+        "fecha_expiracion": (
+            tenant.fecha_expiracion.isoformat()
+            if getattr(tenant, "fecha_expiracion", None)
+            else None
+        ),
+        "configuracion": tenant.configuracion or None,
+        "limite_usuarios": tenant.limite_usuarios if hasattr(tenant, "limite_usuarios") else 10,
+        "limite_pacientes": tenant.limite_pacientes if hasattr(tenant, "limite_pacientes") else 100,
+        "logo_url": getattr(tenant, "logo_url", None),
+        "direccion": getattr(tenant, "direccion", None),
+        "telefono": getattr(tenant, "telefono", None),
+        "email": getattr(tenant, "email", None),
+        "timezone": getattr(tenant, "timezone", "America/Bogota"),
+        "moneda": getattr(tenant, "moneda", "USD"),
+    }
 
 
 # ============================================================
@@ -107,18 +138,7 @@ def login(
         "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
     }
     
-    tenant_dict = None
-    if hasattr(user, 'tenant') and user.tenant:
-        tenant_dict = {
-            "id": str(user.tenant.id),
-            "nombre": user.tenant.nombre,
-            "subdominio": user.tenant.subdominio,
-            "plan": user.tenant.plan if hasattr(user.tenant, 'plan') else "basic",
-            "activo": getattr(user.tenant, 'is_active', True) if hasattr(user.tenant, 'is_active') else True,
-            "fecha_creacion": user.tenant.created_at.isoformat() if hasattr(user.tenant, 'created_at') and user.tenant.created_at else datetime.utcnow().isoformat(),
-            "limite_usuarios": user.tenant.limite_usuarios if hasattr(user.tenant, 'limite_usuarios') else 10,
-            "limite_pacientes": user.tenant.limite_pacientes if hasattr(user.tenant, 'limite_pacientes') else 100,
-        }
+    tenant_dict = _serialize_tenant(user.tenant) if hasattr(user, "tenant") and user.tenant else None
 
     logger.info(f"Login exitoso: {user.email}")
     
@@ -158,16 +178,7 @@ def register(
         tokens = create_tokens(result["user"])
         
         # Serialización completa
-        tenant_dict = {
-            "id": str(result["tenant"].id),
-            "nombre": result["tenant"].nombre,
-            "subdominio": result["tenant"].subdominio,
-            "plan": result["tenant"].plan if hasattr(result["tenant"], 'plan') else "basic",
-            "activo": getattr(result["tenant"], 'is_active', True) if hasattr(result["tenant"], 'is_active') else True,
-            "fecha_creacion": result["tenant"].created_at.isoformat() if hasattr(result["tenant"], 'created_at') and result["tenant"].created_at else datetime.utcnow().isoformat(),
-            "limite_usuarios": result["tenant"].limite_usuarios if hasattr(result["tenant"], 'limite_usuarios') else 10,
-            "limite_pacientes": result["tenant"].limite_pacientes if hasattr(result["tenant"], 'limite_pacientes') else 100,
-        }
+        tenant_dict = _serialize_tenant(result["tenant"])
         
         user_dict = {
             "id": str(result["user"].id),
@@ -231,19 +242,8 @@ def refresh(
             "created_at": user.created_at.isoformat() if user.created_at else datetime.utcnow().isoformat(),
         }
         
-        tenant_dict = None
-        if hasattr(user, 'tenant') and user.tenant:
-            tenant_dict = {
-                "id": str(user.tenant.id),
-                "nombre": user.tenant.nombre,
-                "subdominio": user.tenant.subdominio,
-                "plan": user.tenant.plan if hasattr(user.tenant, 'plan') else "basic",
-                "activo": getattr(user.tenant, 'is_active', True) if hasattr(user.tenant, 'is_active') else True,
-                "fecha_creacion": user.tenant.created_at.isoformat() if hasattr(user.tenant, 'created_at') and user.tenant.created_at else datetime.utcnow().isoformat(),
-                "limite_usuarios": user.tenant.limite_usuarios if hasattr(user.tenant, 'limite_usuarios') else 10,
-                "limite_pacientes": user.tenant.limite_pacientes if hasattr(user.tenant, 'limite_pacientes') else 100,
-            }
-        
+        tenant_dict = _serialize_tenant(user.tenant) if hasattr(user, "tenant") and user.tenant else None
+
         return {
             "access_token": result["access_token"],
             "refresh_token": result["refresh_token"],

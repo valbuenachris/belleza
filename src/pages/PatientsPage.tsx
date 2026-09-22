@@ -120,7 +120,9 @@ export default function PatientsPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-stone-800">{patient.nombre} {patient.apellido}</p>
-                    <p className="text-xs text-stone-500">{patient.genero || 'Sin género'}</p>
+                    {patient.genero && (
+                      <p className="text-xs text-stone-500">{patient.genero}</p>
+                    )}
                   </div>
                 </div>
                 <button
