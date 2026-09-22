@@ -9,7 +9,8 @@ import { TenantStats, Appointment, Page } from '../types';
 import {
   Users, Calendar, DollarSign, UserCheck, TrendingUp,
   Clock, Activity, Building2, CheckCircle2, Circle,
-  ChevronRight, Settings, Tag, HelpCircle, UserPlus, CalendarPlus
+  ChevronRight, Settings, Tag, HelpCircle, UserPlus, CalendarPlus,
+  AlertCircle
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -151,6 +152,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
   const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
+  // Estado de la prueba gratuita / suscripción del tenant
+  const expInfo = React.useMemo(() => {
+    if (isSuperadmin || !tenant || !tenant.fecha_expiracion) return null;
+    const exp = new Date(tenant.fecha_expiracion);
+    if (isNaN(exp.getTime())) return null;
+    const remaining = Math.ceil((exp.getTime() - Date.now()) / 86400000);
+    return { remaining, exp };
+  }, [tenant, isSuperadmin]);
+
   const navigate = (page: Page) => {
     if (onNavigate) onNavigate(page);
   };
@@ -192,6 +202,36 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           <span>{new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
         </div>
       </div>
+
+      {/* Aviso de prueba gratuita / suscripción */}
+      {expInfo && (
+        expInfo.remaining < 0 ? (
+          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-2xl text-sm text-red-700">
+            <AlertCircle size={18} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Tu suscripción ha expirado</p>
+              <p className="text-red-600/80 mt-0.5">
+                Tu periodo de prueba o suscripción finalizó el{' '}
+                {expInfo.exp.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}.
+                Contacta al administrador para renovar tu servicio.
+              </p>
+            </div>
+          </div>
+        ) : expInfo.remaining <= 14 ? (
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl text-sm text-amber-800">
+            <AlertCircle size={18} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">
+                ⏰ Tu periodo de prueba gratuito finaliza en{' '}
+                {expInfo.remaining === 0 ? 'hoy' : `${expInfo.remaining} día${expInfo.remaining === 1 ? '' : 's'}`}.
+              </p>
+              <p className="text-amber-700/80 mt-0.5">
+                Contacta al administrador para activar tu suscripción mensual.
+              </p>
+            </div>
+          </div>
+        ) : null
+      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>

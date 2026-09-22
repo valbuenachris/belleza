@@ -9,7 +9,7 @@ import {
   Building2, Plus, Search, MoreVertical, Edit, Trash2,
   CheckCircle, XCircle, Users, ArrowUpDown, AlertCircle,
   Lock, Mail, User, Check, Copy, Download, KeyRound,
-  DollarSign, PauseCircle, PlayCircle, Layers
+  DollarSign, PauseCircle, PlayCircle, Layers, RefreshCw
 } from 'lucide-react';
 
 export default function TenantsPage() {
@@ -74,6 +74,18 @@ export default function TenantsPage() {
     }
   };
 
+  const handleRenew = async (tenant: Tenant) => {
+    if (!confirm(`¿Renovar la suscripción de "${tenant.nombre}" por 30 días más?`)) return;
+    setError('');
+    try {
+      await api.renewTenant(tenant.id);
+      setSelectedTenant(null);
+      await loadTenants();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al renovar la suscripción');
+    }
+  };
+
   const filteredTenants = tenants.filter(t =>
     t.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -92,6 +104,34 @@ export default function TenantsPage() {
     basic: 'bg-stone-400',
     professional: 'bg-emerald-500',
     enterprise: 'bg-violet-500',
+  };
+
+  const fmtFecha = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const getSuscripcionInfo = (tenant: Tenant) => {
+    if (!tenant.fecha_expiracion) {
+      return { fecha: 'Sin expiración', chip: 'bg-stone-100 text-stone-500', label: 'Exenta' };
+    }
+    const d = new Date(tenant.fecha_expiracion);
+    const dias = Math.ceil((d.getTime() - Date.now()) / 86400000);
+    let chip = 'bg-emerald-50 text-emerald-700';
+    let label = `Vence en ${dias} días`;
+    if (dias < 0) {
+      chip = 'bg-red-50 text-red-600';
+      label = `Expirada (${Math.abs(dias)} d)`;
+    } else if (dias === 0) {
+      chip = 'bg-amber-50 text-amber-700';
+      label = 'Vence hoy';
+    } else if (dias <= 7) {
+      chip = 'bg-amber-50 text-amber-700';
+      label = `Vence en ${dias} día${dias === 1 ? '' : 's'}`;
+    }
+    return { fecha: fmtFecha(tenant.fecha_expiracion), chip, label, dias };
   };
 
   const mrr = globalStats?.mrr_estimado ?? 0;
@@ -234,6 +274,7 @@ export default function TenantsPage() {
                   <th className="text-left px-6 py-4 text-xs font-semibold text-stone-500 uppercase tracking-wider">Plan</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-stone-500 uppercase tracking-wider hidden lg:table-cell">Usuarios</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-stone-500 uppercase tracking-wider">Estado</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-stone-500 uppercase tracking-wider">Suscripción</th>
                   <th className="text-right px-6 py-4 text-xs font-semibold text-stone-500 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
@@ -272,6 +313,20 @@ export default function TenantsPage() {
                           <XCircle size={14} /> Suspendido
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-stone-700">{getSuscripcionInfo(tenant).fecha}</div>
+                      <div className={`mt-1 inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full ${getSuscripcionInfo(tenant).chip}`}>
+                        {getSuscripcionInfo(tenant).label}
+                      </div>
+                      <button
+                        onClick={() => handleRenew(tenant)}
+                        className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-teal-200 text-[10px] font-medium text-teal-600 hover:bg-teal-50 transition-colors"
+                        title="Extender la suscripción 30 días"
+                      >
+                        <RefreshCw size={11} />
+                        Renovar (+30 días)
+                      </button>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -336,6 +391,7 @@ export default function TenantsPage() {
         <TenantDetailModal
           tenant={selectedTenant}
           onClose={() => setSelectedTenant(null)}
+          onRenew={handleRenew}
         />
       )}
 
@@ -773,7 +829,36 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
 // ============================================================
 // Modal de Detalle de Tenant
 // ============================================================
-function TenantDetailModal({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
+function TenantDetailModal({ tenant, onClose, onRenew }: {
+  tenant: Tenant;
+  onClose: () => void;
+  onRenew: (tenant: Tenant) => void;
+}) {
+  const expInfo = (() => {
+    if (!tenant.fecha_expiracion) {
+      return { fecha: 'Sin expiración', chip: 'bg-stone-100 text-stone-500', label: 'Exenta' };
+    }
+    const d = new Date(tenant.fecha_expiracion);
+    const dias = Math.ceil((d.getTime() - Date.now()) / 86400000);
+    let chip = 'bg-emerald-50 text-emerald-700';
+    let label = `Vence en ${dias} días`;
+    if (dias < 0) {
+      chip = 'bg-red-50 text-red-600';
+      label = 'Expirada';
+    } else if (dias === 0) {
+      chip = 'bg-amber-50 text-amber-700';
+      label = 'Vence hoy';
+    } else if (dias <= 7) {
+      chip = 'bg-amber-50 text-amber-700';
+      label = `Vence en ${dias} día${dias === 1 ? '' : 's'}`;
+    }
+    return {
+      fecha: new Date(tenant.fecha_expiracion).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
+      chip,
+      label,
+    };
+  })();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -834,6 +919,24 @@ function TenantDetailModal({ tenant, onClose }: { tenant: Tenant; onClose: () =>
             <p className="text-sm text-stone-700 mt-0.5">
               {new Date(tenant.fecha_creacion).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
+          </div>
+          <div className="border border-stone-100 rounded-xl p-4">
+            <p className="text-xs text-stone-500 uppercase tracking-wider">Suscripción</p>
+            <div className="flex items-center justify-between gap-3 mt-1.5">
+              <div>
+                <p className="text-sm font-medium text-stone-800">{expInfo.fecha}</p>
+                <span className={`mt-1 inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full ${expInfo.chip}`}>
+                  {expInfo.label}
+                </span>
+              </div>
+              <button
+                onClick={() => onRenew(tenant)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-50 border border-teal-200 text-xs font-medium text-teal-700 hover:bg-teal-100 transition-colors"
+              >
+                <RefreshCw size={14} />
+                Renovar (+30 días)
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -927,6 +1030,19 @@ function EditTenantModal({ tenant, onClose, onUpdated }: {
               onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
               className={inputClass}
             />
+          </div>
+          <div className="p-3 bg-stone-50 rounded-xl flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-stone-500">Suscripción expira el</p>
+              <p className="text-sm font-medium text-stone-800">
+                {tenant.fecha_expiracion
+                  ? new Date(tenant.fecha_expiracion).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
+                  : 'Sin expiración (exenta)'}
+              </p>
+            </div>
+            <span className="text-[10px] text-stone-400 text-right max-w-[140px]">
+              Para extenderla usa "Renovar (+30 días)"
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

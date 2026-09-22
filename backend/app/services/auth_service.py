@@ -4,7 +4,7 @@
 # ============================================================
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from sqlalchemy.orm import Session
@@ -193,6 +193,7 @@ def register_tenant(
             timezone=tenant_data.timezone,
             moneda=tenant_data.moneda,
             configuracion=TenantConfig().model_dump(),
+            fecha_expiracion=datetime.utcnow() + timedelta(days=14),
             is_active=True,
         )
         db.add(tenant)

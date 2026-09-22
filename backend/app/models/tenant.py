@@ -3,7 +3,7 @@
 # Representa cada centro de estética registrado en el sistema
 # ============================================================
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import String, Boolean, DateTime, Integer, JSON, Text
@@ -58,8 +58,12 @@ class Tenant(Base, BaseMixin):
     fecha_expiracion: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,
-        default=None,
-        comment="Fecha de expiración de la suscripción (null = sin expiración)",
+        default=lambda: datetime.utcnow() + timedelta(days=14),
+        comment=(
+            "Fecha de expiración de la suscripción. Al crear un tenant "
+            "se asigna automáticamente una prueba gratuita de 14 días. "
+            "null = exento de expiración (solo vía actualización explícita)."
+        ),
     )
     
     # ----------------------------------------------------------

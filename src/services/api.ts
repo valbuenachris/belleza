@@ -460,6 +460,11 @@ export const api = {
     return normalizeTenant(res);
   },
 
+  async renewTenant(id: string): Promise<Tenant> {
+    const res = await request<any>(`/tenants/${id}/renew`, { method: 'PUT' });
+    return normalizeTenant(res);
+  },
+
   async deleteTenant(id: string): Promise<void> {
     await request<{ message: string }>(`/tenants/${id}`, { method: 'DELETE' });
   },

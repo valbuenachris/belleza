@@ -127,6 +127,25 @@ def login(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tu centro de SPA se encuentra suspendido. Por favor contacta al administrador del sistema.",
             )
+
+        # 2.6. Verificar que la suscripción no haya expirado.
+        #      null = exento de expiración (ej.: SPA demo o exención explícita).
+        if tenant is not None:
+            expiracion = getattr(tenant, "fecha_expiracion", None)
+            if (
+                expiracion is not None
+                and datetime.utcnow() > expiracion
+            ):
+                logger.warning(
+                    f"Login bloqueado: suscripción expirada para {credentials.email}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Tu periodo de prueba o suscripción ha expirado. "
+                        "Por favor contacta al administrador para renovar tu servicio."
+                    ),
+                )
     
     # 3. Generar tokens
     #    El access_token y refresh_token incluyen el claim 'tenant_id'

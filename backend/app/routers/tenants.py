@@ -19,6 +19,7 @@ from ..services.tenant_service import (
     count_tenants,
     update_tenant,
     delete_tenant,
+    renew_tenant,
     get_tenant_stats,
     get_global_stats,
 )
@@ -168,6 +169,41 @@ def get_tenant(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant no encontrado",
         )
+    return TenantResponse.model_validate(tenant)
+
+
+# ============================================================
+# PUT /api/v1/tenants/{tenant_id}/renew - Renovar suscripción
+# ============================================================
+
+@router.put(
+    "/{tenant_id}/renew",
+    response_model=TenantResponse,
+    summary="Renovar suscripción del tenant",
+    description=(
+        "Extiende la fecha de expiración del tenant 30 días: a partir de "
+        "la expiración actual si sigue vigente, o desde hoy si ya expiró. "
+        "Solo superadmin."
+    ),
+)
+def renew_existing_tenant_subscription(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_superadmin),
+):
+    """
+    Renueva la suscripción de un tenant sumándole 30 días.
+    Solo accesible para superadministradores.
+    """
+    tenant = renew_tenant(db, tenant_id, days=30)
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant no encontrado",
+        )
+    logger.info(
+        f"Suscripción renovada por {current_user.email}: {tenant.nombre}"
+    )
     return TenantResponse.model_validate(tenant)
 
 

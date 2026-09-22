@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS `tenants` (
     `subdominio` VARCHAR(100) NOT NULL COMMENT 'Subdominio único',
     `plan` VARCHAR(50) NOT NULL DEFAULT 'basic' COMMENT 'Plan: basic, professional, enterprise',
     `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Fecha de creación',
-    `fecha_expiracion` DATETIME NULL DEFAULT NULL COMMENT 'Fecha de expiración de suscripción',
+    `fecha_expiracion` DATETIME NULL DEFAULT NULL COMMENT 'Fecha de expiración de suscripción (al crear: prueba gratis 14 días; NULL = exenta vía actualización explícita)',
     `configuracion` JSON NULL DEFAULT NULL COMMENT 'Configuración específica del tenant',
     `limite_usuarios` INT NOT NULL DEFAULT 10 COMMENT 'Máximo de usuarios permitidos',
     `limite_pacientes` INT NOT NULL DEFAULT 1000 COMMENT 'Máximo de pacientes permitidos',

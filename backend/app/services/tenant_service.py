@@ -5,6 +5,7 @@
 
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
@@ -171,6 +172,7 @@ def create_tenant(db: Session, tenant_data: TenantCreate) -> Tenant:
         timezone=tenant_data.timezone,
         moneda=tenant_data.moneda,
         configuracion=TenantConfig().model_dump(),
+        fecha_expiracion=datetime.utcnow() + timedelta(days=14),
         is_active=True,
     )
     db.add(tenant)
@@ -346,6 +348,40 @@ def update_tenant(db: Session, tenant_id: str, tenant_data: TenantUpdate) -> Opt
     db.refresh(tenant)
     
     logger.info(f"Tenant actualizado: {tenant.nombre} ({tenant.id})")
+    return tenant
+
+
+# ============================================================
+# Renovar suscripción
+# ============================================================
+
+def renew_tenant(db: Session, tenant_id: str, days: int = 30) -> Optional[Tenant]:
+    """
+    Renueva la suscripción del tenant extendiendo `fecha_expiracion`.
+
+    - Si la suscripción sigue vigente, se extiende a partir de la fecha
+      de expiración actual.
+    - Si ya expiró (o no tiene fecha), se extiende `days` desde hoy.
+
+    Returns:
+        Tenant actualizado o None si no existe.
+    """
+    tenant = get_tenant_by_id(db, tenant_id)
+    if not tenant:
+        return None
+
+    now = datetime.utcnow()
+    current = tenant.fecha_expiracion
+    base = current if current is not None and current > now else now
+    tenant.fecha_expiracion = base + timedelta(days=days)
+
+    db.commit()
+    db.refresh(tenant)
+
+    logger.info(
+        f"Suscripción renovada +{days} días para {tenant.nombre} "
+        f"(nuevo vencimiento: {tenant.fecha_expiracion.isoformat()})"
+    )
     return tenant
 
 
