@@ -23,7 +23,7 @@ import DocumentationPage from './pages/DocumentationPage';
 // Router interno de la aplicación
 // ============================================================
 function AppRouter() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [showRegister, setShowRegister] = useState(false);
 
@@ -51,6 +51,11 @@ function AppRouter() {
 
   // Renderizar la página actual
   const renderPage = () => {
+    // Guard de acceso: páginas restringidas redirigen al dashboard
+    if (currentPage === 'docs' && user?.rol !== 'superadmin') {
+      return <DashboardPage onNavigate={setCurrentPage} />;
+    }
+
     switch (currentPage) {
       case 'dashboard':
         return <DashboardPage onNavigate={setCurrentPage} />;
