@@ -70,6 +70,31 @@ def get_appointment_stats(
 
 
 # ============================================================
+# GET /api/v1/appointments/stats/financial - Reporte financiero
+# ============================================================
+
+@router.get(
+    "/stats/financial",
+    summary="Reporte financiero y de rendimiento",
+    description=(
+        "KPIs (ingresos, citas, ticket promedio, pacientes nuevos), top servicios "
+        "y rendimiento por terapeuta en un rango de fechas."
+    ),
+)
+def get_financial_report(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    try:
+        return appointment_service.get_financial_report(db, tenant_id, desde=desde, hasta=hasta)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# ============================================================
 # GET /api/v1/appointments/{id} - Obtener cita
 # ============================================================
 

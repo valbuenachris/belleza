@@ -435,6 +435,126 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
     }
 
 
+# ============================================================
+# Reporte financiero y de rendimiento
+# ============================================================
+
+def get_financial_report(
+    db: Session,
+    tenant_id: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+) -> dict:
+    """
+    Reporte financiero y de rendimiento del SPA en un rango de fechas.
+
+    - KPIs: ingresos, citas (completadas/canceladas), ticket promedio, pacientes nuevos
+    - Top servicios por cantidad y por ingresos
+    - Rendimiento por terapeuta (citas completadas e ingresos)
+
+    Si `desde`/`hasta` no se indican, se usa el mes actual.
+    """
+    today = datetime.now()
+
+    def _parse_day(value: Optional[str], label: str) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"Formato de {label} inválido (usa YYYY-MM-DD)")
+
+    start = _parse_day(desde, "desde")
+    end = _parse_day(hasta, "hasta")
+
+    if start is None:
+        start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if end is None:
+        end = today.replace(hour=23, minute=59, second=59, microsecond=999999)
+    else:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    citas = (
+        db.query(Appointment)
+        .filter(
+            Appointment.tenant_id == tenant_id,
+            Appointment.deleted_at == None,
+            Appointment.date_time >= start,
+            Appointment.date_time <= end,
+        )
+        .all()
+    )
+
+    def _effective_precio(a: Appointment, default: float = 0.0) -> float:
+        precio = a.precio
+        if precio is None and a.service_rel and a.service_rel.precio is not None:
+            precio = a.service_rel.precio
+        return float(precio or default)
+
+    efectivas = [a for a in citas if a.estado != "cancelled"]
+
+    ingresos = sum(_effective_precio(a) for a in efectivas)
+    total_citas = len(citas)
+    completadas_count = sum(1 for a in citas if a.estado == "completed")
+    canceladas_count = sum(1 for a in citas if a.estado == "cancelled")
+    ticket_promedio = ingresos / len(efectivas) if efectivas else 0.0
+
+    pacientes_nuevos = (
+        db.query(func.count(Patient.id))
+        .filter(
+            Patient.tenant_id == tenant_id,
+            Patient.deleted_at == None,
+            Patient.created_at >= start,
+            Patient.created_at <= end,
+        )
+        .scalar()
+        or 0
+    )
+
+    # Top servicios (más solicitados y con más ingresos)
+    servicios_map: dict = {}
+    for a in efectivas:
+        name = a.service or "Sin servicio"
+        entry = servicios_map.setdefault(name, {"servicio": name, "cantidad": 0, "ingresos": 0.0})
+        entry["cantidad"] += 1
+        entry["ingresos"] += _effective_precio(a)
+
+    top_servicios = sorted(
+        servicios_map.values(), key=lambda s: (s["cantidad"], s["ingresos"]), reverse=True
+    )
+
+    # Rendimiento por terapeuta
+    terapeutas_map: dict = {}
+    for a in efectivas:
+        name = a.therapist or "Sin terapeuta"
+        entry = terapeutas_map.setdefault(
+            name, {"terapeuta": name, "completadas": 0, "ingresos": 0.0}
+        )
+        if a.estado == "completed":
+            entry["completadas"] += 1
+        entry["ingresos"] += _effective_precio(a)
+
+    rendimiento_terapeutas = sorted(
+        terapeutas_map.values(), key=lambda t: t["ingresos"], reverse=True
+    )
+
+    return {
+        "desde": start.strftime("%Y-%m-%d"),
+        "hasta": end.strftime("%Y-%m-%d"),
+        "total_ingresos": round(ingresos, 2),
+        "total_citas": total_citas,
+        "completadas": completadas_count,
+        "canceladas": canceladas_count,
+        "ticket_promedio": round(ticket_promedio, 2),
+        "pacientes_nuevos": pacientes_nuevos,
+        "top_servicios": top_servicios,
+        "rendimiento_terapeutas": rendimiento_terapeutas,
+    }
+
+
 def build_appointment_response(appointment: Appointment) -> dict:
     """
     Construye el diccionario de respuesta con los campos calculados

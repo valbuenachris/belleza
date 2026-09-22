@@ -216,6 +216,35 @@ export interface AppointmentSummary {
 }
 
 // ============================================================
+// Reportes financieros y de rendimiento
+// ============================================================
+
+export interface FinancialReportTopService {
+  servicio: string;
+  cantidad: number;
+  ingresos: number;
+}
+
+export interface FinancialReportTherapist {
+  terapeuta: string;
+  completadas: number;
+  ingresos: number;
+}
+
+export interface FinancialReport {
+  desde: string;
+  hasta: string;
+  total_ingresos: number;
+  total_citas: number;
+  completadas: number;
+  canceladas: number;
+  ticket_promedio: number;
+  pacientes_nuevos: number;
+  top_servicios: FinancialReportTopService[];
+  rendimiento_terapeutas: FinancialReportTherapist[];
+}
+
+// ============================================================
 // Respuestas paginadas de usuarios
 // ============================================================
 

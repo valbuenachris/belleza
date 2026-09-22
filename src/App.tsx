@@ -17,6 +17,7 @@ import SettingsPage from './pages/SettingsPage';
 import AppointmentsPage from './pages/AppointmentsPage';
 import PatientsPage from './pages/PatientsPage';
 import ServicesPage from './pages/ServicesPage';
+import ReportsPage from './pages/ReportsPage';
 import DocumentationPage from './pages/DocumentationPage';
 
 // ============================================================
@@ -55,6 +56,9 @@ function AppRouter() {
     if (currentPage === 'docs' && user?.rol !== 'superadmin') {
       return <DashboardPage onNavigate={setCurrentPage} />;
     }
+    if (currentPage === 'reports' && !['admin', 'manager'].includes(user?.rol ?? '')) {
+      return <DashboardPage onNavigate={setCurrentPage} />;
+    }
 
     switch (currentPage) {
       case 'dashboard':
@@ -69,6 +73,8 @@ function AppRouter() {
         return <ServicesPage />;
       case 'patients':
         return <PatientsPage onNavigate={setCurrentPage} />;
+      case 'reports':
+        return <ReportsPage />;
       case 'settings':
         return <SettingsPage />;
       case 'docs':

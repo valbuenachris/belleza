@@ -2,10 +2,11 @@
 // Página de Pacientes - CRUD real contra el backend FastAPI
 // ============================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, ApiError } from '../services/api';
 import { Patient, Appointment, Page } from '../types';
 import { requestScheduleAppointment } from '../services/scheduleRequest';
+import { setPatientFichaListener } from '../services/patientActions';
 import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
   Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
@@ -20,13 +21,22 @@ export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page)
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [viewingPatient, setViewingPatient] = useState<Patient | null>(null);
   const [error, setError] = useState('');
+  const patientsRef = useRef<Patient[]>([]);
+  const pendingFichaRef = useRef<string | null>(null);
 
   const loadPatients = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const data = await api.getPatients();
-      setPatients(data.patients || []);
+      const list = data.patients || [];
+      patientsRef.current = list;
+      setPatients(list);
+      if (pendingFichaRef.current) {
+        const p = list.find((x) => x.id === pendingFichaRef.current);
+        if (p) setViewingPatient(p);
+        pendingFichaRef.current = null;
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error al cargar pacientes');
     } finally {
@@ -36,6 +46,20 @@ export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page)
 
   useEffect(() => {
     loadPatients();
+  }, [loadPatients]);
+
+  // Recibir solicitudes de apertura de Ficha desde el buscador global
+  useEffect(() => {
+    setPatientFichaListener((patientId: string) => {
+      const p = patientsRef.current.find((x) => x.id === patientId);
+      if (p) {
+        setViewingPatient(p);
+      } else {
+        pendingFichaRef.current = patientId;
+        loadPatients();
+      }
+    });
+    return () => setPatientFichaListener(null);
   }, [loadPatients]);
 
   const filteredPatients = patients.filter(p => {

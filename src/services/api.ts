@@ -20,6 +20,7 @@ import {
   AppointmentUpdateInput,
   AppointmentsResponse,
   AppointmentSummary,
+  FinancialReport,
   UserCreate,
   UserUpdate,
   UsersResponse,
@@ -552,6 +553,14 @@ export const api = {
 
   async getAppointmentSummary(): Promise<AppointmentSummary> {
     return request<AppointmentSummary>('/appointments/stats/summary');
+  },
+
+  async getFinancialReport(params?: { desde?: string; hasta?: string }): Promise<FinancialReport> {
+    const query = new URLSearchParams();
+    if (params?.desde) query.set('desde', params.desde);
+    if (params?.hasta) query.set('hasta', params.hasta);
+    const qs = query.toString();
+    return request<FinancialReport>(`/appointments/stats/financial${qs ? `?${qs}` : ''}`);
   },
 
   // ----------------------------------------------------------
