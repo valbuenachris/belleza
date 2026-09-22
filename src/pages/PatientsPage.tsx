@@ -7,7 +7,7 @@ import { api, ApiError } from '../services/api';
 import { Patient } from '../types';
 import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
-  Calendar, Stethoscope, Users as UsersIcon
+  Calendar, Stethoscope, Users as UsersIcon, Pencil
 } from 'lucide-react';
 
 export default function PatientsPage() {
@@ -15,6 +15,7 @@ export default function PatientsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [error, setError] = useState('');
 
   const loadPatients = useCallback(async () => {
@@ -125,13 +126,22 @@ export default function PatientsPage() {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(patient.id)}
-                  className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
-                  title="Eliminar paciente"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setEditingPatient(patient)}
+                    className="p-1.5 rounded-lg hover:bg-emerald-50 text-stone-400 hover:text-emerald-600 transition-colors"
+                    title="Editar paciente"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(patient.id)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
+                    title="Eliminar paciente"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2 text-xs text-stone-500">
@@ -189,6 +199,14 @@ export default function PatientsPage() {
         <CreatePatientModal
           onClose={() => setShowCreateModal(false)}
           onCreated={() => { setShowCreateModal(false); loadPatients(); }}
+        />
+      )}
+
+      {editingPatient && (
+        <EditPatientModal
+          patient={editingPatient}
+          onClose={() => setEditingPatient(null)}
+          onUpdated={() => { setEditingPatient(null); loadPatients(); }}
         />
       )}
     </div>
@@ -317,6 +335,145 @@ function CreatePatientModal({ onClose, onCreated }: {
               className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 transition-all"
             >
               {loading ? 'Creando...' : 'Crear Paciente'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Modal de Editar Paciente
+// ============================================================
+function EditPatientModal({ patient, onClose, onUpdated }: {
+  patient: Patient;
+  onClose: () => void;
+  onUpdated: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    nombre: patient.nombre,
+    apellido: patient.apellido,
+    email: patient.email || '',
+    telefono: patient.telefono || '',
+    direccion: patient.direccion || '',
+    notas_medicas: patient.notas_medicas || '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!formData.nombre.trim() || !formData.apellido.trim()) {
+      setError('El nombre y el apellido son obligatorios');
+      return;
+    }
+    if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      setError('Formato de email inválido');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.updatePatient(patient.id, {
+        nombre: formData.nombre.trim(),
+        apellido: formData.apellido.trim(),
+        email: formData.email.trim() || null,
+        telefono: formData.telefono.trim() || null,
+        direccion: formData.direccion.trim() || null,
+        notas_medicas: formData.notas_medicas.trim() || null,
+      });
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al actualizar paciente');
+      setLoading(false);
+    }
+  };
+
+  const inputClass = "w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-stone-100">
+          <h2 className="text-xl font-semibold text-stone-800">Editar Paciente</h2>
+          <p className="text-sm text-stone-500 mt-1">Actualiza los datos de {patient.nombre} {patient.apellido}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">{error}</div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Nombre *</label>
+              <input
+                type="text" required value={formData.nombre}
+                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                className={inputClass} placeholder="María"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Apellido *</label>
+              <input
+                type="text" required value={formData.apellido}
+                onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
+                className={inputClass} placeholder="González"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+              <input
+                type="email" value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className={inputClass} placeholder="maria@email.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Teléfono</label>
+              <input
+                type="tel" value={formData.telefono}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                className={inputClass} placeholder="+57 300 123 4567"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Dirección</label>
+            <input
+              type="text" value={formData.direccion}
+              onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+              className={inputClass} placeholder="Calle 100 #15-20, Ciudad"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Notas médicas / Alergias</label>
+            <textarea
+              value={formData.notas_medicas}
+              onChange={(e) => setFormData({ ...formData, notas_medicas: e.target.value })}
+              className={`${inputClass} resize-none`} rows={3}
+              placeholder="Alergias, condiciones o preferencias"
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button" onClick={onClose}
+              className="flex-1 py-2.5 border border-stone-200 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit" disabled={loading}
+              className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 transition-all"
+            >
+              {loading ? 'Guardando...' : 'Guardar Cambios'}
             </button>
           </div>
         </form>
