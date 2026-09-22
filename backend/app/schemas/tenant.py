@@ -180,6 +180,10 @@ class TenantListResponse(BaseModel):
     fecha_creacion: datetime
     email: Optional[str] = None
     telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    timezone: str = "America/Bogota"
+    moneda: str = "USD"
+    fecha_expiracion: Optional[datetime] = None
     limite_usuarios: int
     limite_pacientes: int
 

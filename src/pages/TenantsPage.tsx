@@ -344,7 +344,13 @@ export default function TenantsPage() {
         <EditTenantModal
           tenant={editingTenant}
           onClose={() => setEditingTenant(null)}
-          onUpdated={() => { setEditingTenant(null); loadTenants(); }}
+          onUpdated={(updated?: Tenant) => {
+            setEditingTenant(null);
+            if (updated) {
+              setTenants(prev => prev.map(t => (t.id === updated.id ? updated : t)));
+            }
+            loadTenants();
+          }}
         />
       )}
     </div>
@@ -841,7 +847,7 @@ function TenantDetailModal({ tenant, onClose }: { tenant: Tenant; onClose: () =>
 function EditTenantModal({ tenant, onClose, onUpdated }: {
   tenant: Tenant;
   onClose: () => void;
-  onUpdated: () => void;
+  onUpdated: (updated?: Tenant) => void;
 }) {
   const [formData, setFormData] = useState({
     nombre: tenant.nombre,
@@ -861,13 +867,13 @@ function EditTenantModal({ tenant, onClose, onUpdated }: {
     setError('');
     setLoading(true);
     try {
-      await api.updateTenant(tenant.id, {
+      const updated = await api.updateTenant(tenant.id, {
         ...formData,
         email: formData.email || null,
         telefono: formData.telefono || null,
         direccion: formData.direccion || null,
       });
-      onUpdated();
+      onUpdated(updated);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error al actualizar el tenant');
       setLoading(false);
