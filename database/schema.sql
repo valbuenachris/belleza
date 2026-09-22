@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS `tenants` (
     `email` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Email de contacto',
     `timezone` VARCHAR(50) NOT NULL DEFAULT 'America/Bogota' COMMENT 'Zona horaria',
     `moneda` VARCHAR(3) NOT NULL DEFAULT 'USD' COMMENT 'Moneda principal (ISO 4217)',
+    `puntos_meta` INT NOT NULL DEFAULT 10 COMMENT 'Estrellas necesarias para obtener una sesión gratuita',
+    `premio_fidelidad` VARCHAR(255) NOT NULL DEFAULT 'Sesión de Spa gratis' COMMENT 'Premio al alcanzar las estrellas meta',
+    `tarjeta_color_hex` VARCHAR(9) NOT NULL DEFAULT '#0D9488' COMMENT 'Color de fondo de la tarjeta de fidelidad',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- updated_at se mantiene desde el ORM (onupdate). Sin ON UPDATE
     -- CURRENT_TIMESTAMP para que haya una única fuente de verdad.
@@ -103,12 +106,16 @@ CREATE TABLE IF NOT EXISTS `patients` (
     `genero` VARCHAR(30) NULL DEFAULT NULL COMMENT 'Género',
     `direccion` VARCHAR(500) NULL DEFAULT NULL COMMENT 'Dirección',
     `notas_medicas` TEXT NULL COMMENT 'Notas médicas o alergias',
+    `puntos` INT NOT NULL DEFAULT 0 COMMENT 'Estrellas/puntos de fidelidad acumulados',
+    `sesiones_gratis` INT NOT NULL DEFAULT 0 COMMENT 'Sesiones gratuitas disponibles',
+    `wallet_pass_id` VARCHAR(128) NULL DEFAULT NULL COMMENT 'Identificador único del pase digital (Apple Wallet / Google Wallet)',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NULL DEFAULT NULL,
     `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
     `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
 
     PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_patients_wallet_pass` (`wallet_pass_id`),
     INDEX `idx_patients_tenant` (`tenant_id`),
     INDEX `idx_patients_email` (`email`),
     INDEX `idx_tenant_active` (`tenant_id`, `is_active`),

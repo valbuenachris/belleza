@@ -5,12 +5,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
-import { TenantStats, Appointment, Page } from '../types';
+import { TenantStats, Appointment, Page, ScanLoyaltyResult } from '../types';
 import {
   Users, Calendar, DollarSign, UserCheck, TrendingUp,
   Clock, Activity, Building2, CheckCircle2, Circle,
   ChevronRight, Settings, Tag, HelpCircle, UserPlus, CalendarPlus,
-  AlertCircle
+  AlertCircle, QrCode, X, Star, RefreshCw
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -27,6 +27,38 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [error, setError] = useState('');
 
   const isSuperadmin = user?.rol === 'superadmin';
+
+  // Estado del escáner de tarjetas de fidelidad
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannerInput, setScannerInput] = useState('');
+  const [scannerResult, setScannerResult] = useState<ScanLoyaltyResult | null>(null);
+  const [scannerBusy, setScannerBusy] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+
+  const scanPoint = async (action: 'add' | 'redeem') => {
+    const code = scannerInput.trim();
+    if (!code) {
+      setScannerError('Ingresa el código de la tarjeta (wallet_pass_id)');
+      return;
+    }
+    setScannerBusy(true);
+    setScannerError('');
+    try {
+      const res = action === 'add' ? await api.scanAddPoint(code) : await api.scanRedeem(code);
+      setScannerResult({ ...scannerResult, ...res });
+    } catch (err) {
+      setScannerError(err instanceof ApiError ? err.message : 'Error al procesar el escaneo');
+    } finally {
+      setScannerBusy(false);
+    }
+  };
+
+  const openScanner = () => {
+    setScannerInput('');
+    setScannerResult(null);
+    setScannerError('');
+    setShowScanner(true);
+  };
 
   const currencyFormatter = new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -197,9 +229,19 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             {tenant ? `Panel de ${tenant.nombre}` : 'Panel de Administración'}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-stone-500 bg-white px-4 py-2 rounded-xl border border-stone-200">
-          <Clock size={16} />
-          <span>{new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openScanner}
+            disabled={isSuperadmin}
+            className="inline-flex items-center gap-2 text-sm font-medium text-white bg-stone-800 hover:bg-stone-700 px-4 py-2 rounded-xl border border-stone-200 transition-colors disabled:opacity-40"
+          >
+            <QrCode size={16} />
+            Escanear Tarjeta
+          </button>
+          <div className="hidden md:flex items-center gap-2 text-sm text-stone-500 bg-white px-4 py-2 rounded-xl border border-stone-200">
+            <Clock size={16} />
+            <span>{new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          </div>
         </div>
       </div>
 
@@ -482,6 +524,113 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
         )}
       </div>
+
+      {/* Modal del escáner de tarjetas de fidelidad */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowScanner(false)}>
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <QrCode size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-stone-800">Escanear Tarjeta</h3>
+                  <p className="text-xs text-stone-500">Programa de Fidelidad</p>
+                </div>
+              </div>
+              <button onClick={() => setShowScanner(false)} className="text-stone-400 hover:text-stone-600 p-1 rounded-lg hover:bg-stone-50">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-stone-500">
+                Ingresa el código de la tarjeta de fidelidad (o escanea el QR del pase) para registrar una estrella o canjear una sesión.
+              </p>
+              <input
+                type="text"
+                value={scannerInput}
+                onChange={(e) => setScannerInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && scanPoint('add')}
+                placeholder="wallet_pass_id o código del QR"
+                className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+              />
+
+              {scannerError && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                  {scannerError}
+                </div>
+              )}
+
+              {scannerResult ? (
+                <div
+                  className="rounded-2xl p-5 text-white"
+                  style={{ backgroundColor: /^#[0-9A-Fa-f]{6}$/.test(tenant?.tarjeta_color_hex || '') ? tenant!.tarjeta_color_hex : '#0D9488' }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium opacity-90">{scannerResult.patient_nombre || 'Paciente'}</p>
+                      <p className="text-xs opacity-75 font-mono">{scannerResult.wallet_pass_id}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold">{scannerResult.puntos}<span className="text-sm opacity-80">/{scannerResult.puntos_meta ?? 10}</span></p>
+                      <p className="text-xs opacity-80 flex items-center justify-end gap-1"><Star size={12} /> estrellas</p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-medium mt-3 flex items-center gap-1.5">
+                    <CheckCircle2 size={15} className="shrink-0" />
+                    {scannerResult.message}
+                  </p>
+                  <div className="flex items-center justify-between mt-4 text-sm">
+                    <span className="opacity-90 flex items-center gap-1">
+                      <RefreshCw size={13} /> Sesiones gratis: {scannerResult.sesiones_gratis}
+                    </span>
+                    {scannerResult.premio && <span className="opacity-75 text-xs text-right">{scannerResult.premio}</span>}
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => scanPoint('add')}
+                      disabled={scannerBusy}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <Star size={14} /> +1 Estrella
+                    </button>
+                    <button
+                      onClick={() => scanPoint('redeem')}
+                      disabled={scannerBusy || (scannerResult.sesiones_gratis ?? 0) <= 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white text-stone-800 hover:bg-white/90 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                    >
+                      <CheckCircle2 size={14} /> Canjear Sesión
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => scanPoint('add')}
+                    disabled={scannerBusy}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-colors disabled:opacity-50"
+                  >
+                    {scannerBusy ? 'Procesando...' : (<><Star size={15} /> Registrar Estrella</>)}
+                  </button>
+                  <button
+                    onClick={() => scanPoint('redeem')}
+                    disabled={scannerBusy}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-stone-800 text-white text-sm font-medium rounded-xl hover:bg-stone-700 transition-colors disabled:opacity-50"
+                  >
+                    Canjear Sesión
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

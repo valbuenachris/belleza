@@ -15,6 +15,7 @@ from ..models.patient import Patient
 from ..models.user import User
 from ..models.service import Service
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate
+from ..services import loyalty_service
 from ..utils.security import generate_uuid
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,11 @@ def create_appointment(db: Session, tenant_id: str, data: AppointmentCreate) -> 
     db.commit()
     db.refresh(appointment)
 
+    # Programa de fidelidad: una cita creada directamente como completada
+    # también otorga su estrella.
+    if appointment.estado == "completed":
+        loyalty_service.award_loyalty_points(db, patient)
+
     logger.info(f"Cita creada: {appointment.id} para {appointment.patient} ({date_time})")
     return appointment
 
@@ -317,6 +323,8 @@ def update_appointment(
 
     body = data.model_dump(exclude_unset=True)
 
+    estado_previo = appointment.estado
+
     if "estado" in body:
         body["estado"] = body["estado"].lower()
         if body["estado"] not in ESTADOS_CITA:
@@ -359,6 +367,16 @@ def update_appointment(
 
     db.commit()
     db.refresh(appointment)
+
+    # Programa de fidelidad: al marcar la cita como completada se otorga
+    # 1 estrella al paciente (solo en la transición -> completed).
+    if appointment.estado == "completed" and estado_previo != "completed":
+        patient = db.query(Patient).filter(
+            Patient.id == appointment.patient_id,
+            Patient.deleted_at == None,
+        ).first()
+        if patient:
+            loyalty_service.award_loyalty_points(db, patient)
 
     logger.info(f"Cita actualizada: {appointment.id}")
     return appointment

@@ -86,4 +86,7 @@ class PatientResponse(PatientBase):
     activo: bool
     ultima_cita: Optional[str] = None
     total_citas: int = 0
+    puntos: int = 0
+    sesiones_gratis: int = 0
+    wallet_pass_id: Optional[str] = None
     created_at: datetime

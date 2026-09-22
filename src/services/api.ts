@@ -26,6 +26,9 @@ import {
   ClinicalRecordCreateInput,
   ClinicalRecordUpdateInput,
   ClinicalRecordsResponse,
+  WalletPassData,
+  RedeemSessionResult,
+  ScanLoyaltyResult,
   UserCreate,
   UserUpdate,
   UsersResponse,
@@ -163,6 +166,9 @@ function normalizeTenant(data: any): Tenant {
     email: data.email ?? null,
     timezone: data.timezone ?? 'America/Bogota',
     moneda: data.moneda ?? 'USD',
+    puntos_meta: data.puntos_meta ?? 10,
+    premio_fidelidad: data.premio_fidelidad ?? 'Sesión de Spa gratis',
+    tarjeta_color_hex: data.tarjeta_color_hex ?? '#0D9488',
     estadisticas: data.estadisticas ?? undefined,
   };
 }
@@ -602,6 +608,62 @@ export const api = {
 
   async deleteClinicalRecord(id: string): Promise<void> {
     await request<{ deleted: boolean }>(`/clinical-records/${id}`, { method: 'DELETE' });
+  },
+
+  // ----------------------------------------------------------
+  // Programa de Fidelidad (Loyalty Rewards / Wallet)
+  // ----------------------------------------------------------
+  async getWalletPass(patientId: string): Promise<WalletPassData> {
+    const res = await request<{ message: string } & WalletPassData>(`/patients/${patientId}/wallet-pass?formato=json`);
+    return {
+      ...res,
+      pase: res.pase ?? {
+        tipo: 'storeCard',
+        formato: 'json',
+        organization_name: 'SPA',
+        serial_number: res.wallet_pass_id,
+        pass_type_identifier: '',
+        team_identifier: '',
+      },
+    };
+  },
+
+  async downloadWalletPass(patientId: string): Promise<void> {
+    const token = getTokens().accessToken;
+    const res = await fetch(`${API_BASE}/patients/${patientId}/wallet-pass?formato=pkpass`, {
+      method: 'GET',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
+    });
+    if (!res.ok) throw await toApiError(res);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fidelidad-${patientId.slice(0, 8)}.pkpass`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  async redeemSession(patientId: string): Promise<RedeemSessionResult> {
+    return request<RedeemSessionResult>(`/patients/${patientId}/redeem-session`, { method: 'POST' });
+  },
+
+  // ----------------------------------------------------------
+  // Escáner de tarjetas de fidelidad (por wallet_pass_id)
+  // ----------------------------------------------------------
+  async scanAddPoint(walletPassId: string): Promise<ScanLoyaltyResult> {
+    return request<ScanLoyaltyResult>(`/loyalty/scan/${encodeURIComponent(walletPassId)}/add-point`, {
+      method: 'POST',
+    });
+  },
+
+  async scanRedeem(walletPassId: string): Promise<ScanLoyaltyResult> {
+    return request<ScanLoyaltyResult>(`/loyalty/scan/${encodeURIComponent(walletPassId)}/redeem`, {
+      method: 'POST',
+    });
   },
 
   // ----------------------------------------------------------

@@ -8,7 +8,7 @@ import { api, ApiError } from '../services/api';
 import { Tenant } from '../types';
 import {
   Settings as SettingsIcon, Building2, Clock, Globe,
-  Save, CheckCircle, Bell, Palette, Shield, AlertCircle
+  Save, CheckCircle, Bell, Palette, Shield, AlertCircle, Star
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -38,6 +38,9 @@ export default function SettingsPage() {
     duracionCita: tenant?.configuracion?.duracion_cita_default ?? 60,
     recordatorioCitas: tenant?.configuracion?.recordatorio_citas ?? true,
     confirmacionCitas: tenant?.configuracion?.confirmacion_citas ?? true,
+    puntosMeta: tenant?.puntos_meta ?? 10,
+    premioFidelidad: tenant?.premio_fidelidad || 'Sesión de Spa gratis',
+    tarjetaColorHex: tenant?.tarjeta_color_hex || '#0D9488',
   });
 
   // Vuelca el tenant (contexto/auth) sobre el formulario para que los campos
@@ -61,6 +64,9 @@ export default function SettingsPage() {
       duracionCita: cfg?.duracion_cita_default ?? 60,
       recordatorioCitas: cfg?.recordatorio_citas ?? true,
       confirmacionCitas: cfg?.confirmacion_citas ?? true,
+      puntosMeta: t.puntos_meta ?? 10,
+      premioFidelidad: t.premio_fidelidad || 'Sesión de Spa gratis',
+      tarjetaColorHex: t.tarjeta_color_hex || '#0D9488',
     }));
   }, []);
 
@@ -110,6 +116,9 @@ export default function SettingsPage() {
           recordatorio_citas: formData.recordatorioCitas,
           confirmacion_citas: formData.confirmacionCitas,
         },
+        puntos_meta: formData.puntosMeta,
+        premio_fidelidad: formData.premioFidelidad,
+        tarjeta_color_hex: formData.tarjetaColorHex,
       });
       updateTenant(updated);
       setSaved(true);
@@ -152,6 +161,7 @@ export default function SettingsPage() {
     { id: 'general', label: 'General', icon: <Building2 size={16} /> },
     { id: 'schedule', label: 'Horarios', icon: <Clock size={16} /> },
     { id: 'notifications', label: 'Notificaciones', icon: <Bell size={16} /> },
+    { id: 'loyalty', label: 'Programa de Lealtad', icon: <Star size={16} /> },
     { id: 'security', label: 'Seguridad', icon: <Shield size={16} /> },
   ];
 
@@ -365,6 +375,81 @@ export default function SettingsPage() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'loyalty' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-stone-800 mb-1">Programa de Lealtad</h3>
+              <p className="text-sm text-stone-500 mb-5">
+                Personaliza las estrellas, el premio y la tarjeta de fidelidad que ven tus pacientes.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                    Estrellas meta (puntos_meta)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={formData.puntosMeta}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value);
+                      setFormData({ ...formData, puntosMeta: Number.isNaN(v) ? 1 : Math.max(1, v) });
+                    }}
+                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                  <p className="text-xs text-stone-400 mt-1.5">
+                    Estrellas necesarias para ganar una sesión gratuita.
+                  </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                    Premio de fidelidad
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.premioFidelidad}
+                    onChange={(e) => setFormData({ ...formData, premioFidelidad: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                  <p className="text-xs text-stone-400 mt-1.5">
+                    Se muestra como mensaje al alcanzar la meta y en el pase digital.
+                  </p>
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                    <Palette size={14} className="inline mr-1" /> Color de la tarjeta de fidelidad
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={/^#[0-9A-Fa-f]{6}$/.test(formData.tarjetaColorHex) ? formData.tarjetaColorHex : '#0D9488'}
+                      onChange={(e) => setFormData({ ...formData, tarjetaColorHex: e.target.value })}
+                      className="w-12 h-12 rounded-xl border border-stone-200 bg-white cursor-pointer p-1"
+                    />
+                    <input
+                      type="text"
+                      value={formData.tarjetaColorHex}
+                      maxLength={9}
+                      onChange={(e) => setFormData({ ...formData, tarjetaColorHex: e.target.value })}
+                      className="w-40 px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                    />
+                    <div
+                      className="w-24 h-12 rounded-xl border border-stone-200 flex items-center justify-center text-white text-xs font-semibold"
+                      style={{ backgroundColor: /^#[0-9A-Fa-f]{6}$/.test(formData.tarjetaColorHex) ? formData.tarjetaColorHex : '#0D9488' }}
+                    >
+                      <Star size={14} className="mr-1" /> vista previa
+                    </div>
+                  </div>
+                  <p className="text-xs text-stone-400 mt-1.5">
+                    Color de fondo del pase digital (.pkpass) de la tarjeta de fidelidad.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}

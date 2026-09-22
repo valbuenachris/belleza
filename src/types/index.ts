@@ -20,6 +20,10 @@ export interface Tenant {
   email: string | null;
   timezone: string;
   moneda: string;
+  /** Programa de fidelidad personalizable por tenant */
+  puntos_meta: number;
+  premio_fidelidad: string;
+  tarjeta_color_hex: string;
   estadisticas?: TenantStats;
 }
 
@@ -118,6 +122,48 @@ export interface Patient {
   created_at: string | null;
   total_citas?: number;
   ultima_cita?: string | null;
+  puntos?: number;
+  sesiones_gratis?: number;
+  wallet_pass_id?: string | null;
+}
+
+export interface WalletPassData {
+  patient_id: string;
+  wallet_pass_id: string;
+  puntos: number;
+  sesiones_gratis: number;
+  estrellas: string;
+  progreso: number;
+  tiene_sesion_gratis: boolean;
+  pase: {
+    tipo: string;
+    formato: string;
+    organization_name: string;
+    serial_number: string;
+    pass_type_identifier: string;
+    team_identifier: string;
+  };
+}
+
+export interface RedeemSessionResult {
+  message: string;
+  patient_id: string;
+  wallet_pass_id: string | null;
+  puntos: number;
+  sesiones_gratis: number;
+}
+
+export interface ScanLoyaltyResult {
+  message: string;
+  patient_id: string;
+  patient_nombre?: string;
+  wallet_pass_id: string | null;
+  puntos: number;
+  sesiones_gratis: number;
+  puntos_meta?: number;
+  premio?: string;
+  estrellas?: string;
+  sesion_gratis_otorgada?: boolean;
 }
 
 export interface PatientCreateInput {

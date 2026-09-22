@@ -5,15 +5,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, ApiError } from '../services/api';
 import { Patient, Appointment, Page, ClinicalRecord, ClinicalRecordCreateInput } from '../types';
+import { useAuth } from '../context/AuthContext';
 import { requestScheduleAppointment } from '../services/scheduleRequest';
 import { setPatientFichaListener } from '../services/patientActions';
 import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
   Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
-  X, CalendarPlus, Clock, Printer, Plus, ClipboardList, History, Edit3
+  X, CalendarPlus, Clock, Printer, Plus, ClipboardList, History, Edit3,
+  Star, Wallet, Gift
 } from 'lucide-react';
 
 export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
+  const { tenant } = useAuth();
+  const puntosMeta = tenant?.puntos_meta ?? 10;
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -203,6 +207,19 @@ export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page)
                     <span className="truncate">{patient.notas_medicas}</span>
                   </div>
                 )}
+                {(patient.puntos ?? 0) > 0 || (patient.sesiones_gratis ?? 0) > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <Star size={13} className="text-amber-400 flex-shrink-0" />
+                    <span className="flex items-center gap-1.5">
+                      {patient.puntos ?? 0} / {puntosMeta} estrellas
+                      {(patient.sesiones_gratis ?? 0) > 0 && (
+                        <span className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-emerald-50 text-emerald-700">
+                          {patient.sesiones_gratis} gratis
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-stone-100">
@@ -258,6 +275,7 @@ export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page)
           patient={viewingPatient}
           onClose={() => setViewingPatient(null)}
           onSchedule={handleSchedule}
+          onRefresh={loadPatients}
         />
       )}
     </div>
@@ -550,11 +568,15 @@ const fichaStatusColors: Record<string, string> = {
   cancelled: 'bg-red-50 text-red-500',
 };
 
-function PatientClinicalModal({ patient, onClose, onSchedule }: {
+function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
   patient: Patient;
   onClose: () => void;
   onSchedule: (patientId: string) => void;
+  onRefresh?: () => void;
 }) {
+  const { tenant } = useAuth();
+  const puntosMeta = tenant?.puntos_meta ?? 10;
+  const premioFidelidad = tenant?.premio_fidelidad || 'Sesión de Spa gratis';
   const [activeTab, setActiveTab] = useState<'appointments' | 'clinical'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -566,6 +588,43 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
   const [showRecordForm, setShowRecordForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState<ClinicalRecord | null>(null);
   const [savingRecord, setSavingRecord] = useState(false);
+
+  // Programa de fidelidad (estrellas / sesiones gratis / pase digital)
+  const [loyalty, setLoyalty] = useState({ puntos: patient.puntos ?? 0, sesiones_gratis: patient.sesiones_gratis ?? 0 });
+  const [loyaltyBusy, setLoyaltyBusy] = useState(false);
+  const [loyaltyMsg, setLoyaltyMsg] = useState('');
+  const [loyaltyErr, setLoyaltyErr] = useState('');
+
+  const handleDownloadPass = async () => {
+    setLoyaltyBusy(true);
+    setLoyaltyMsg('');
+    setLoyaltyErr('');
+    try {
+      await api.downloadWalletPass(patient.id);
+      setLoyaltyMsg('Pase descargado. Compártelo o ábrelo para añadirlo a Apple/Google Wallet.');
+    } catch (err) {
+      setLoyaltyErr(err instanceof ApiError ? err.message : 'Error al generar el pase');
+    } finally {
+      setLoyaltyBusy(false);
+    }
+  };
+
+  const handleRedeem = async () => {
+    if (loyalty.sesiones_gratis <= 0) return;
+    setLoyaltyBusy(true);
+    setLoyaltyMsg('');
+    setLoyaltyErr('');
+    try {
+      const res = await api.redeemSession(patient.id);
+      setLoyalty({ puntos: res.puntos, sesiones_gratis: res.sesiones_gratis });
+      setLoyaltyMsg(res.message);
+      onRefresh?.();
+    } catch (err) {
+      setLoyaltyErr(err instanceof ApiError ? err.message : 'Error al canjear la sesión gratuita');
+    } finally {
+      setLoyaltyBusy(false);
+    }
+  };
 
   const loadHistory = async () => {
     setLoading(true);
@@ -837,6 +896,59 @@ function PatientClinicalModal({ patient, onClose, onSchedule }: {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Programa de Fidelidad */}
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100 rounded-2xl p-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Star size={16} className="text-amber-500" />
+                <h3 className="text-sm font-semibold text-stone-700">Programa de Fidelidad</h3>
+              </div>
+              <span className="text-xs font-medium text-amber-700">{loyalty.puntos} / {puntosMeta} estrellas</span>
+            </div>
+
+            <div className="flex items-center gap-1 mb-3" aria-label="Progreso de estrellas">
+              {Array.from({ length: puntosMeta }).map((_, i) => (
+                <Star
+                  key={i}
+                  size={18}
+                  className={i < loyalty.puntos ? 'fill-amber-400 text-amber-400' : 'text-stone-300'}
+                />
+              ))}
+            </div>
+
+            <p className="text-xs text-stone-500 mb-3">
+              {loyalty.sesiones_gratis > 0
+                ? `¡Tienes ${loyalty.sesiones_gratis} ${loyalty.sesiones_gratis === 1 ? 'sesión gratis disponible' : 'sesiones gratis disponibles'}!`
+                : `Cada cita completada suma una estrella. ¡${puntosMeta} estrellas = ${premioFidelidad}!`}
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadPass}
+                disabled={loyaltyBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Descargar pase .pkpass para Apple Wallet / Google Wallet"
+              >
+                <Wallet size={14} />
+                Añadir a Wallet
+              </button>
+              <button
+                type="button"
+                onClick={handleRedeem}
+                disabled={loyalty.sesiones_gratis <= 0 || loyaltyBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Usar una sesión gratuita"
+              >
+                <Gift size={14} />
+                Canjear Sesión Gratis
+              </button>
+            </div>
+
+            {loyaltyMsg && <p className="mt-2 text-xs text-emerald-700">{loyaltyMsg}</p>}
+            {loyaltyErr && <p className="mt-2 text-xs text-red-600">{loyaltyErr}</p>}
           </div>
 
           {activeTab === 'appointments' && (

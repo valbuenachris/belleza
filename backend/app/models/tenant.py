@@ -129,6 +129,28 @@ class Tenant(Base, BaseMixin):
     )
     
     # ----------------------------------------------------------
+    # Programa de Fidelidad (personalizable por tenant)
+    # ----------------------------------------------------------
+    puntos_meta: Mapped[int] = mapped_column(
+        Integer,
+        default=10,
+        nullable=False,
+        comment="Estrellas necesarias para obtener una sesión gratuita",
+    )
+    premio_fidelidad: Mapped[str] = mapped_column(
+        String(255),
+        default="Sesión de Spa gratis",
+        nullable=False,
+        comment="Premio que se otorga al alcanzar las estrellas meta",
+    )
+    tarjeta_color_hex: Mapped[str] = mapped_column(
+        String(9),
+        default="#0D9488",
+        nullable=False,
+        comment="Color de fondo de la tarjeta de fidelidad (pase digital)",
+    )
+    
+    # ----------------------------------------------------------
     # Relaciones
     # ----------------------------------------------------------
     usuarios: Mapped[List["User"]] = relationship(

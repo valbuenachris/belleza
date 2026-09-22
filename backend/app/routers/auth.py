@@ -59,6 +59,9 @@ def _serialize_tenant(tenant) -> Dict[str, Any]:
         "email": getattr(tenant, "email", None),
         "timezone": getattr(tenant, "timezone", "America/Bogota"),
         "moneda": getattr(tenant, "moneda", "USD"),
+        "puntos_meta": getattr(tenant, "puntos_meta", None) or 10,
+        "premio_fidelidad": getattr(tenant, "premio_fidelidad", None) or "Sesión de Spa gratis",
+        "tarjeta_color_hex": getattr(tenant, "tarjeta_color_hex", None) or "#0D9488",
     }
 
 

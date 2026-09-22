@@ -18,7 +18,7 @@ from .config import settings
 from .database import init_db, check_connection, get_connection_info
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
-from .routers import auth, tenants, patients, appointments, services, users, clinical_records
+from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty
 
 # ============================================================
 # Configuración de logging
@@ -156,6 +156,8 @@ app.include_router(services.router, prefix=settings.API_PREFIX)
 app.include_router(users.router, prefix=settings.API_PREFIX)
 app.include_router(clinical_records.router, prefix=settings.API_PREFIX)
 app.include_router(clinical_records.record_router, prefix=settings.API_PREFIX)
+app.include_router(loyalty.router, prefix=settings.API_PREFIX)
+app.include_router(loyalty.scan_router, prefix=settings.API_PREFIX)
 
 
 # ============================================================

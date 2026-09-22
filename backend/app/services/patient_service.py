@@ -274,6 +274,9 @@ def build_patient_response(patient: Patient, stats: Optional[dict] = None) -> di
         "direccion": patient.direccion,
         "notas_medicas": patient.notas_medicas,
         "activo": patient.is_active,
+        "puntos": patient.puntos or 0,
+        "sesiones_gratis": patient.sesiones_gratis or 0,
+        "wallet_pass_id": patient.wallet_pass_id,
         "created_at": patient.created_at.isoformat() if patient.created_at else None,
     }
     if stats:

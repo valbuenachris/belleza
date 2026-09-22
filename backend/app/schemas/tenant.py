@@ -30,6 +30,33 @@ class TenantBase(BaseModel):
     direccion: Optional[str] = Field(None, max_length=500, description="Dirección física")
     timezone: str = Field("America/Bogota", max_length=50, description="Zona horaria")
     moneda: str = Field("USD", max_length=3, description="Moneda (ISO 4217)")
+    puntos_meta: int = Field(10, ge=1, le=100, description="Estrellas meta para la sesión gratuita")
+    premio_fidelidad: str = Field(
+        "Sesión de Spa gratis",
+        min_length=1,
+        max_length=255,
+        description="Premio de fidelidad (se muestra en la tarjeta y pase digital)",
+    )
+    tarjeta_color_hex: str = Field(
+        "#0D9488",
+        max_length=9,
+        pattern="^#[0-9A-Fa-f]{6}$",
+        description="Color de fondo de la tarjeta de fidelidad (hex, ej: #0D9488)",
+    )
+
+    @field_validator("puntos_meta")
+    @classmethod
+    def validar_puntos_meta(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("puntos_meta debe ser al menos 1")
+        return v
+
+    @field_validator("tarjeta_color_hex")
+    @classmethod
+    def validar_color_hex(cls, v: str) -> str:
+        if not v.startswith("#") or len(v) != 7 or not all(c in "0123456789abcdefABCDEF" for c in v[1:]):
+            raise ValueError("El color debe tener formato hex: #RRGGBB")
+        return v.upper()
     
     @field_validator("subdominio")
     @classmethod
@@ -126,6 +153,9 @@ class TenantUpdate(BaseModel):
     email: Optional[str] = Field(None, max_length=255)
     timezone: Optional[str] = Field(None, max_length=50)
     moneda: Optional[str] = Field(None, max_length=3)
+    puntos_meta: Optional[int] = Field(None, ge=1, le=100)
+    premio_fidelidad: Optional[str] = Field(None, min_length=1, max_length=255)
+    tarjeta_color_hex: Optional[str] = Field(None, max_length=9, pattern="^#[0-9A-Fa-f]{6}$")
 
     @field_validator("subdominio")
     @classmethod

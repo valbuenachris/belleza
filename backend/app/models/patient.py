@@ -6,7 +6,7 @@
 from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import String, Date, Text, Index
+from sqlalchemy import String, Date, Text, Integer, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -72,6 +72,28 @@ class Patient(Base, TenantBaseModel):
         Text,
         nullable=True,
         comment="Notas/alergias relevantes del paciente",
+    )
+
+    # ----------------------------------------------------------
+    # Programa de fidelidad (Loyalty Rewards)
+    # ----------------------------------------------------------
+    puntos: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Estrellas/puntos de fidelidad acumulados (10 = 1 sesión gratis)",
+    )
+    sesiones_gratis: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Sesiones gratuitas disponibles",
+    )
+    wallet_pass_id: Mapped[Optional[str]] = mapped_column(
+        String(128),
+        nullable=True,
+        unique=True,
+        comment="Identificador único del pase digital (Apple Wallet / Google Wallet)",
     )
 
     # ----------------------------------------------------------
