@@ -521,8 +521,8 @@ export const api = {
   // ----------------------------------------------------------
   // Citas
   // ----------------------------------------------------------
-  async getAppointments(params?: { fecha?: string; estado?: string }): Promise<AppointmentsResponse> {
-    const query = new URLSearchParams({ limit: '100' });
+  async getAppointments(params?: { fecha?: string; estado?: string; limit?: number }): Promise<AppointmentsResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 100) });
     if (params?.fecha) query.set('fecha', params.fecha);
     if (params?.estado) query.set('estado', params.estado);
     return request<AppointmentsResponse>(`/appointments?${query.toString()}`);
