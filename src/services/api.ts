@@ -33,6 +33,11 @@ import {
   UserCreate,
   UserUpdate,
   UsersResponse,
+  AssistantStatusResponse,
+  AssistantAskResponse,
+  AssistantHistoryResponse,
+  AssistantQuery,
+  AssistantStatsResponse,
 } from '../types';
 
 // ============================================================
@@ -704,6 +709,56 @@ export const api = {
       citas_semana: citasSemana,
       ingresos_mes: ingresosMes.map((v) => Math.round(v)),
     };
+  },
+
+  // ----------------------------------------------------------
+  // Asistente IA (FreeLLMAPI)
+  // ----------------------------------------------------------
+  async getAssistantStatus(): Promise<AssistantStatusResponse> {
+    return request<AssistantStatusResponse>('/assistant/status');
+  },
+
+  async assistantAsk(question: string): Promise<AssistantAskResponse> {
+    return request<AssistantAskResponse>('/assistant/ask', {
+      method: 'POST',
+      body: { question },
+    });
+  },
+
+  async getAssistantHistory(params?: { limit?: number; offset?: number }): Promise<AssistantHistoryResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 50) });
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    return request<AssistantHistoryResponse>(`/assistant/history?${query.toString()}`);
+  },
+
+  async getAssistantQueries(params?: {
+    search?: string;
+    is_understood?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<AssistantHistoryResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 50) });
+    if (params?.search) query.set('search', params.search);
+    if (params?.is_understood) query.set('is_understood', params.is_understood);
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    return request<AssistantHistoryResponse>(`/assistant/queries?${query.toString()}`);
+  },
+
+  async getAssistantStats(): Promise<AssistantStatsResponse> {
+    return request<AssistantStatsResponse>('/assistant/queries/stats');
+  },
+
+  async sendAssistantFeedback(queryId: string, is_understood: boolean): Promise<AssistantQuery> {
+    return request<AssistantQuery>(`/assistant/queries/${queryId}/feedback`, {
+      method: 'POST',
+      body: { is_understood },
+    });
+  },
+
+  async deleteAssistantQuery(queryId: string): Promise<{ deleted: boolean; message: string }> {
+    return request<{ deleted: boolean; message: string }>(`/assistant/queries/${queryId}`, {
+      method: 'DELETE',
+    });
   },
 };
 

@@ -193,7 +193,9 @@ def _hex_to_rgb(hex_color: str) -> str:
 # Otorgamiento de puntos
 # ============================================================
 
-def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
+def award_loyalty_points(
+    db: Session, patient: Patient, tenant=None, sync_google_wallet: bool = True
+) -> dict:
     """
     Otorga PUNTOS_POR_CITA al paciente tras una cita completada.
 
@@ -205,6 +207,10 @@ def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
     Args:
         tenant: opcional. Si no se pasa, se busca por patient.tenant_id
             (para mantener compatibilidad con los llamadores actuales).
+        sync_google_wallet: si True (default), dispara la sincronización
+            asíncrona del LoyaltyObject con Google Wallet (best-effort).
+            El endpoint de scan pasa False porque realiza su propio PATCH
+            síncrono justo después de este commit (evita dobles PATCH).
 
     Returns:
         dict con puntos, sesiones_gratis y si se otorgó sesión gratis.
@@ -237,9 +243,12 @@ def award_loyalty_points(db: Session, patient: Patient, tenant=None) -> dict:
     # Notifica a los dispositivos registrados (push APNs, best-effort).
     notify_pass_update(db, patient)
 
-    # NOTA: la sincronización con Google Wallet (update_loyalty_object) la
-    # realiza el endpoint de scan después de este commit, de forma síncrona
-    # y fail-safe, para evitar dobles PATCHs al mismo objeto.
+    if sync_google_wallet:
+        # Sincroniza la tarjeta en Google Wallet (async, best-effort, nunca
+        # lanza y no hace nada si la integración está deshabilitada). Así,
+        # una estrella otorgada desde la completación de una cita también
+        # actualiza la tarjeta del paciente automáticamente.
+        maybe_sync_google_wallet(patient.id)
 
     return {
         "puntos": patient.puntos,

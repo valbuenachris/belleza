@@ -120,7 +120,7 @@ def create_tables() -> None:
     """
     try:
         # Importar todos los modelos para que se registren en Base.metadata
-        from .models import tenant, user  # noqa: F401
+        from .models import tenant, user, assistant  # noqa: F401
         Base.metadata.create_all(bind=engine)
         logger.info("Tablas creadas/verificadas exitosamente")
     except Exception as e:

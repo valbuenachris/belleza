@@ -366,4 +366,52 @@ export interface Toast {
   message: string;
 }
 
-export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs';
+// ============================================================
+// Asistente IA (FreeLLMAPI)
+// ============================================================
+
+export interface AssistantQuery {
+  id: string;
+  tenant_id: string;
+  user_id: string | null;
+  user_name?: string | null;
+  question: string;
+  response: string | null;
+  is_understood: boolean | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface AssistantAskResponse {
+  id: string;
+  question: string;
+  response: string;
+  is_understood: boolean | null;
+  created_at: string;
+}
+
+export interface AssistantHistoryResponse {
+  queries: AssistantQuery[];
+  total: number;
+}
+
+export interface AssistantStatsResponse {
+  total_queries: number;
+  total_answered: number;
+  understood: number;
+  not_understood: number;
+  pending_feedback: number;
+  unique_users: number;
+  avg_response_chars: number;
+}
+
+export interface AssistantStatusResponse {
+  enabled: boolean;
+  configured: boolean;
+  active: boolean;
+  base_url: string | null;
+  model: string | null;
+  missing: string[];
+}
+
+export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant';

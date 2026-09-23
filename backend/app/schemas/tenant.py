@@ -9,6 +9,28 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from ..utils.validators import validate_subdomain, validate_email, validate_password_strength
 
+# ============================================================
+# Defaults del programa de fidelidad (personalizables por tenant)
+# Se aplican automáticamente si la base de datos registra NULL,
+# vacío o formatos inválidos (tenant creados antes de la
+# migración 0006 o migraciones pendientes de aplicar).
+# ============================================================
+DEFAULT_PUNTOS_META = 10
+DEFAULT_PREMIO_FIDELIDAD = "Sesión de Spa gratis"
+DEFAULT_TARJETA_COLOR_HEX = "#0D9488"
+
+
+def _valid_color_hex(value: str) -> bool:
+    """True si el valor es un hex de color válido (#RRGGBB)."""
+    if not isinstance(value, str):
+        return False
+    value = value.strip()
+    return (
+        len(value) == 7
+        and value.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in value[1:])
+    )
+
 
 # ============================================================
 # Schema base con campos comunes
@@ -30,19 +52,44 @@ class TenantBase(BaseModel):
     direccion: Optional[str] = Field(None, max_length=500, description="Dirección física")
     timezone: str = Field("America/Bogota", max_length=50, description="Zona horaria")
     moneda: str = Field("USD", max_length=3, description="Moneda (ISO 4217)")
-    puntos_meta: int = Field(10, ge=1, le=100, description="Estrellas meta para la sesión gratuita")
+    puntos_meta: int = Field(DEFAULT_PUNTOS_META, ge=1, le=100, description="Estrellas meta para la sesión gratuita")
     premio_fidelidad: str = Field(
-        "Sesión de Spa gratis",
+        DEFAULT_PREMIO_FIDELIDAD,
         min_length=1,
         max_length=255,
         description="Premio de fidelidad (se muestra en la tarjeta y pase digital)",
     )
     tarjeta_color_hex: str = Field(
-        "#0D9488",
+        DEFAULT_TARJETA_COLOR_HEX,
         max_length=9,
         pattern="^#[0-9A-Fa-f]{6}$",
         description="Color de fondo de la tarjeta de fidelidad (hex, ej: #0D9488)",
     )
+
+    @field_validator("puntos_meta", mode="before")
+    @classmethod
+    def sanitizar_puntos_meta(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return DEFAULT_PUNTOS_META
+        if isinstance(v, int) and v < 1:
+            return DEFAULT_PUNTOS_META
+        return v
+
+    @field_validator("premio_fidelidad", mode="before")
+    @classmethod
+    def sanitizar_premio_fidelidad(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return DEFAULT_PREMIO_FIDELIDAD
+        return v
+
+    @field_validator("tarjeta_color_hex", mode="before")
+    @classmethod
+    def sanitizar_tarjeta_color_hex(cls, v):
+        if not isinstance(v, str) or not v.strip():
+            return DEFAULT_TARJETA_COLOR_HEX
+        if not _valid_color_hex(v):
+            return DEFAULT_TARJETA_COLOR_HEX
+        return v
 
     @field_validator("puntos_meta")
     @classmethod

@@ -158,6 +158,32 @@ class Settings(BaseSettings):
     GOOGLE_WALLET_SAVE_BASE_URL: str = "https://pay.google.com/gp/v/save"
 
     # ----------------------------------------------------------
+    # Asistente IA (FreeLLMAPI - apifreellm.com)
+    # ----------------------------------------------------------
+    # Asistente de IA para resolver consultas de clientes, dar
+    # recomendaciones de servicios y explicar el programa de fidelidad.
+    # Integración con FreeLLMAPI (https://apifreellm.com): endpoint
+    #   POST {FREELLMAPI_BASE_URL}/chat
+    #   Authorization: Bearer {FREELLMAPI_API_KEY}
+    #   Body: {"message": "pregunta", "model": "opcional"}
+    #   Respuesta: {"success": true, "response": "texto"}
+    # Mientras no haya una API key real, FREELLMAPI_ENABLED=false: los
+    # endpoints responden 400/disabled y el resto de la app opera igual.
+    FREELLMAPI_ENABLED: bool = False
+    # API key de FreeLLMAPI (se obtiene registrándose en apifreellm.com
+    # con una cuenta de Google). Se envía como Bearer token. NUNCA se
+    # registra en logs ni se expone en el frontend.
+    FREELLMAPI_API_KEY: str = ""
+    # URL base de la API (incluye el prefijo /api/v1). Overridable para
+    # apuntar a una instancia propia/proxy de FreeLLMAPI.
+    FREELLMAPI_BASE_URL: str = "https://apifreellm.com/api/v1"
+    # Modelo opcional (la API usa su modelo por defecto si se omite).
+    FREELLMAPI_MODEL: str = ""
+    # Timeout en segundos de cada llamada al proveedor (evita bloquear
+    # el request del chat ante una respuesta lenta de la IA).
+    FREELLMAPI_TIMEOUT: int = 60
+
+    # ----------------------------------------------------------
     # Docker
     # ----------------------------------------------------------
     DOCKER_ENV: bool = False

@@ -254,7 +254,13 @@ def scan_add_point(
     patient = _get_patient_by_pass_or_404(db, tenant_id, wallet_pass_id)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
-    result = loyalty_service.award_loyalty_points(db, patient, tenant)
+    # sync_google_wallet=False: este endpoint realiza su PROPIO PATCH
+    # síncrono a Google Wallet justo debajo (update_loyalty_object), así
+    # que award_loyalty_points no debe disparar otro más (evita dobles
+    # actualizaciones y mantiene la respuesta cero-extra del escáner).
+    result = loyalty_service.award_loyalty_points(
+        db, patient, tenant, sync_google_wallet=False
+    )
 
     # Sincroniza el LoyaltyObject con Google Wallet (solo si está habilitado).
     # Fail-safe: nunca lanza ni afecta a la respuesta del endpoint. La

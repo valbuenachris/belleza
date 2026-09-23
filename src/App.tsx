@@ -19,6 +19,7 @@ import PatientsPage from './pages/PatientsPage';
 import ServicesPage from './pages/ServicesPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentationPage from './pages/DocumentationPage';
+import AssistantPage from './pages/AssistantPage';
 
 // ============================================================
 // Router interno de la aplicación
@@ -62,6 +63,9 @@ function AppRouter() {
     if (currentPage === 'settings' && !['admin', 'manager'].includes(user?.rol ?? '')) {
       return <DashboardPage onNavigate={setCurrentPage} />;
     }
+    if (currentPage === 'assistant' && !['admin', 'manager'].includes(user?.rol ?? '')) {
+      return <DashboardPage onNavigate={setCurrentPage} />;
+    }
 
     switch (currentPage) {
       case 'dashboard':
@@ -80,6 +84,8 @@ function AppRouter() {
         return <ReportsPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'assistant':
+        return <AssistantPage />;
       case 'docs':
         return <DocumentationPage />;
       default:

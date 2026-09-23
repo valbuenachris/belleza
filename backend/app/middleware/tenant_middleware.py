@@ -4,10 +4,12 @@
 # ============================================================
 
 import logging
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from fastapi import Request, Response
+from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -16,6 +18,110 @@ from ..models.tenant import Tenant
 from ..utils.http_headers import sanitize_request
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# Defaults del programa de fidelidad
+# Se aplican si la base de datos registra NULL/vacío/formatos
+# inválidos (tenants creados antes de la migración 0006 o con
+# migraciones de fidelidad pendientes de aplicar en el servidor).
+# ============================================================
+DEFAULT_PUNTOS_META = 10
+DEFAULT_PREMIO_FIDELIDAD = "Sesión de Spa gratis"
+DEFAULT_TARJETA_COLOR_HEX = "#0D9488"
+
+
+def _valid_color_hex(value) -> bool:
+    """True si el valor es un hex de color válido (#RRGGBB)."""
+    if not isinstance(value, str):
+        return False
+    value = value.strip()
+    return (
+        len(value) == 7
+        and value.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in value[1:])
+    )
+
+
+def _apply_loyalty_defaults(tenant) -> None:
+    """
+    Normaliza en memoria la configuración de fidelidad del tenant.
+    Si la BD entrega NULL/vacío/inválido, aplica el valor por defecto
+    para que ningún endpoint ruta-consume valores rotos. Nunca rompe
+    el middleware (defensa ante datos heredados).
+    """
+    try:
+        puntos = getattr(tenant, "puntos_meta", None)
+        if puntos is None or not isinstance(puntos, int) or puntos < 1:
+            tenant.puntos_meta = DEFAULT_PUNTOS_META
+
+        premio = getattr(tenant, "premio_fidelidad", None)
+        if premio is None or not isinstance(premio, str) or not premio.strip():
+            tenant.premio_fidelidad = DEFAULT_PREMIO_FIDELIDAD
+
+        color = getattr(tenant, "tarjeta_color_hex", None)
+        if not _valid_color_hex(color):
+            tenant.tarjeta_color_hex = DEFAULT_TARJETA_COLOR_HEX
+    except Exception:  # pragma: no cover - defensa extrema
+        pass
+
+
+def _load_tenant_fallback(db, tenant_id: str) -> Optional[Tenant]:
+    """
+    Carga el tenant cuando la query normal falla porque la tabla
+    `tenants` NO tiene alguna columna que el modelo espera (migraciones
+    de fidelidad p.ej. 0006+ pendientes). Selecciona solo las columnas
+    existentes y construye el Tenant con los defaults de fidelidad,
+    manteniendo operativo el sistema hasta que el operador ejecute
+    `alembic upgrade head`.
+
+    Si el error no era por columnas faltantes, reintenta la query normal
+    (la excepción pudo ser transitoria, p.ej. timeout de conexión).
+    """
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
+    try:
+        rows = db.execute(text("SHOW COLUMNS FROM tenants")).mappings().all()
+    except Exception:
+        return None
+
+    present = {row["Field"] for row in rows}
+    all_cols = set(Tenant.__table__.columns.keys())
+
+    if all_cols.issubset(present):
+        try:
+            return db.query(Tenant).filter(
+                Tenant.id == tenant_id,
+                Tenant.deleted_at == None,
+            ).first()
+        except Exception:
+            return None
+
+    missing = sorted(all_cols - present)
+    logger.error(
+        "[TenantMiddleware] La tabla `tenants` no tiene las columnas %s. "
+        "Ejecuta en el servidor: docker compose exec backend alembic upgrade head. "
+        "Mientras tanto se usa un fallback con los valores por defecto.",
+        missing,
+    )
+
+    existing = sorted(all_cols & present)
+    try:
+        stmt = select(*[getattr(Tenant, name) for name in existing]).where(
+            Tenant.id == tenant_id,
+            Tenant.deleted_at == None,
+        )
+        row = db.execute(stmt).mappings().first()
+    except Exception:
+        return None
+    if row is None:
+        return None
+
+    tenant = Tenant(**{key: value for key, value in row.items()})
+    _apply_loyalty_defaults(tenant)
+    return tenant
 
 # ============================================================
 # Rutas públicas que no requieren validación de tenant
@@ -120,10 +226,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # ----------------------------------------------------------
         db = SessionLocal()
         try:
-            tenant = db.query(Tenant).filter(
-                Tenant.id == tenant_id,
-                Tenant.deleted_at == None,
-            ).first()
+            # ----------------------------------------------------------
+            # Paso 5: Validar el tenant en la base de datos
+            # ----------------------------------------------------------
+            try:
+                tenant = db.query(Tenant).filter(
+                    Tenant.id == tenant_id,
+                    Tenant.deleted_at == None,
+                ).first()
+            except OperationalError:
+                # La query falló (p.ej. columna esperada por el modelo que aún
+                # no existe en la BD: migraciones de fidelidad sin aplicar).
+                # Se carga el tenant con las columnas disponibles y defaults.
+                tenant = _load_tenant_fallback(db, tenant_id)
 
             if not tenant:
                 logger.warning(f"Tenant no encontrado: {tenant_id}")
@@ -131,6 +246,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     status_code=403,
                     content={"detail": "El tenant no existe o ha sido eliminado"},
                 )
+
+            # Configuración de fidelidad defensiva: si la BD registra NULL,
+            # vacío o formatos inválidos, aplicar defaults (no excepciones).
+            _apply_loyalty_defaults(tenant)
 
             if not tenant.is_active:
                 logger.warning(f"Intento de acceso a tenant inactivo: {tenant_id}")
@@ -155,10 +274,21 @@ class TenantMiddleware(BaseHTTPMiddleware):
             request.state.tenant_id = tenant.id
             request.state.tenant = tenant
 
+            # ----------------------------------------------------------
+            # Ejecutar el request (solo si la validación del tenant fue exitosa)
+            # ----------------------------------------------------------
             return await call_next(request)
 
         except Exception as e:
-            logger.error(f"Error en TenantMiddleware: {e}")
+            # SOLO errors que ocurrieron DURANTE la validación del tenant
+            # (no errors lanzados por el route handler via call_next).
+            # Si el route lanza HTTPException, este handler no debería
+            # atraparlo porque Starlette's ExceptionMiddleware lo captura primero.
+            # Pero por seguridad, logueamos y devolvemos 500 genérico.
+            logger.error(
+                f"Error en TenantMiddleware al validar el tenant {tenant_id}: {e}",
+                exc_info=True,
+            )
             return JSONResponse(
                 status_code=500,
                 content={"detail": "Error interno al validar el tenant"},

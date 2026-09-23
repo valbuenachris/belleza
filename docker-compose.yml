@@ -32,6 +32,9 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./google-creds/service-account.json:/app/google-credentials/service-account.json:ro
+      - ./backend/.env:/app/.env:ro
+      - ./google-credentials:/app/google-credentials:ro
+
     networks:
       - spa_network
     restart: unless-stopped

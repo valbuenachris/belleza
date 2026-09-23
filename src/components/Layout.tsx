@@ -9,7 +9,7 @@ import { api } from '../services/api';
 import { requestPatientFicha } from '../services/patientActions';
 import {
   LayoutDashboard, Building2, Users, Calendar, UserCheck,
-  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Bell, Search, BookOpen, Tag, BarChart
+  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Bell, Search, BookOpen, Tag, BarChart, Bot
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -25,6 +25,7 @@ const navItems: { id: Page; label: string; icon: React.ReactNode; roles: string[
   { id: 'services', label: 'Servicios', icon: <Tag size={20} />, roles: ['admin', 'manager'] },
   { id: 'appointments', label: 'Citas', icon: <Calendar size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
   { id: 'reports', label: 'Reportes', icon: <BarChart size={20} />, roles: ['admin', 'manager'] },
+  { id: 'assistant', label: 'Asistente IA', icon: <Bot size={20} />, roles: ['admin', 'manager'] },
   { id: 'patients', label: 'Pacientes', icon: <UserCheck size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
   { id: 'settings', label: 'Configuración', icon: <Settings size={20} />, roles: ['admin', 'manager'] },
   { id: 'docs', label: 'Documentación', icon: <BookOpen size={20} />, roles: ['superadmin'] },

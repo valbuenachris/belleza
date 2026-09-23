@@ -219,3 +219,28 @@ def get_admin_or_superadmin(
             detail="Acceso restringido a administradores",
         )
     return user
+
+
+# ============================================================
+# Dependencia: Acceso al Asistente IA (admin / manager / superadmin)
+# ============================================================
+
+def require_assistant_access(
+    user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Verifica que el usuario tenga permiso para usar el Asistente IA.
+
+    El asistente (chat y gestión del historial) está reservado a los
+    roles administrativos: admin, manager y superadmin. El resto de
+    roles (receptionist, therapist) recibe 403.
+    """
+    if user.rol not in ["admin", "manager", "superadmin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "El Asistente IA está disponible solo para "
+                "administradores y gerentes"
+            ),
+        )
+    return user

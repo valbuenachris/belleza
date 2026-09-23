@@ -299,6 +299,40 @@ CREATE TABLE IF NOT EXISTS `clinical_records` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de historia clínica / evoluciones de tratamiento';
 
 -- ============================================================
+-- Tabla: assistant_queries
+-- Consultas al asistente de IA (FreeLLMAPI): pregunta, respuesta y
+-- feedback de calidad. Datos aislados por tenant.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `assistant_queries` (
+    `id` CHAR(36) NOT NULL COMMENT 'UUID de la consulta',
+    `tenant_id` CHAR(36) NOT NULL COMMENT 'FK al tenant',
+    `user_id` CHAR(36) NULL DEFAULT NULL COMMENT 'FK al usuario que realizó la consulta (SET NULL si se elimina)',
+    `question` TEXT NOT NULL COMMENT 'Pregunta formulada por el usuario',
+    `response` TEXT NULL COMMENT 'Respuesta generada por el asistente IA (FreeLLMAPI)',
+    `is_understood` BOOLEAN NULL DEFAULT NULL COMMENT 'Feedback del usuario: NULL = sin valorar, TRUE = útil, FALSE = no útil',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NULL DEFAULT NULL,
+    `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
+    `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
+
+    PRIMARY KEY (`id`),
+    INDEX `idx_tenant_active` (`tenant_id`, `is_active`),
+    INDEX `idx_assistant_queries_user` (`user_id`),
+    INDEX `idx_assistant_tenant_created` (`tenant_id`, `created_at`),
+
+    CONSTRAINT `fk_assistant_queries_tenant`
+        FOREIGN KEY (`tenant_id`)
+        REFERENCES `tenants` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT `fk_assistant_queries_user`
+        FOREIGN KEY (`user_id`)
+        REFERENCES `users` (`id`)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de consultas al asistente IA (historial y feedback)';
+
+-- ============================================================
 -- NOTA: Los triggers de actualización automática de updated_at
 -- fueron ELIMINADOS. updated_at lo mantiene el ORM (onupdate),
 -- alineado con las migraciones de Alembic y con create_all.
