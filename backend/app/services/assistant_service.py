@@ -92,10 +92,11 @@ def _call_freellmapi(prompt: str) -> str:
             "Activa FREELLMAPI_ENABLED y configura FREELLMAPI_API_KEY en el backend."
         )
 
-    url = f"{settings.FREELLMAPI_BASE_URL.rstrip('/')}/chat"
-    body: dict = {"message": prompt}
-    if settings.FREELLMAPI_MODEL:
-        body["model"] = settings.FREELLMAPI_MODEL
+    url = f"{settings.FREELLMAPI_BASE_URL.rstrip('/')}/chat/completions"
+    body = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model": settings.FREELLMAPI_MODEL or "auto"
+    }
 
     started = time.monotonic()
     try:
@@ -108,7 +109,7 @@ def _call_freellmapi(prompt: str) -> str:
                 "User-Agent": "spa-management-backend/1.0",
             },
         ) as client:
-            response = client.post(url, json=body)
+            logger.info(f"[DEBUG] Sending body: {body}"); response = client.post(url, json=body)
         duration_ms = int((time.monotonic() - started) * 1000)
     except httpx.TimeoutException:
         logger.error(
@@ -160,7 +161,11 @@ def _call_freellmapi(prompt: str) -> str:
         logger.error(f"[Assistant] Respuesta de FreeLLMAPI no es JSON: {_exc_summary(exc)}")
         raise ValueError("El asistente IA respondió de forma inesperada.")
 
-    answer = (data.get("response") or "").strip() if isinstance(data, dict) else ""
+    if isinstance(data, dict) and 'choices' in data and len(data['choices']) > 0:
+        answer = data['choices'][0]['message']['content'].strip()
+    else:
+        answer = ""
+
     success = bool(data.get("success")) if isinstance(data, dict) else False
 
     logger.info(

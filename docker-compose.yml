@@ -34,9 +34,9 @@ services:
       - ./google-creds/service-account.json:/app/google-credentials/service-account.json:ro
       - ./backend/.env:/app/.env:ro
       - ./google-credentials:/app/google-credentials:ro
-
     networks:
       - spa_network
+      - freellmapi_default  # <--- AGREGADO: Conexión permanente a la red del proxy de IA
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -98,6 +98,9 @@ networks:
     name: spa_management_network
 
   npm_npm_net:
+    external: true
+
+  freellmapi_default:        # <--- AGREGADO: Declaración de la red externa del proxy
     external: true
 
 # ============================================================
