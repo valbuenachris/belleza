@@ -22,11 +22,11 @@
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -189,7 +189,7 @@ def _exc_summary(exc: Exception) -> str:
 # Prompt con contexto del tenant
 # ============================================================
 
-def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str, servicios_lista: str) -> str:
+def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str, servicios_lista: str, business_context: str) -> str:
     """
     Construye el prompt del sistema con el contexto del SPA:
     el asistente actúa como experto de recepción/fidelidad del negocio
@@ -205,6 +205,12 @@ def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str,
         premio = tenant.premio_fidelidad or ""
     servicios = servicios_lista if servicios_lista else ""
     return (
+        "Eres un Asistente Experto en Gestión y Crecimiento de SPAs. Tu usuario es el DUEÑO o ADMINISTRADOR del negocio. "
+        "Tu objetivo es ayudar a tomar decisiones, reactivar clientes y optimizar la operación. "
+        "Responde SIEMPRE en español, de forma profesional, directa y orientada a la acción. "
+        "No inventes datos. Usa EXCLUSIVAMENTE la información del RESUMEN EJECUTIVO del negocio que se te proporciona a continuación "
+        "para responder preguntas sobre ventas, clientes o servicios.\n\n"
+        f"{business_context}\n\n"
         "Eres el asistente IA de un sistema de gestión para centros de "
         "estética y relajación (SPAs). Ayudas al personal del SPA a:\n"
         "  - Resolver consultas sobre clientes y servicios del SPA.\n"
@@ -248,7 +254,7 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
 
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
-    # Fetch active services for the current tenant
+# Fetch active services for the current tenant
     try:
         from ..models.service import Service
         services = db.query(Service).filter(
@@ -258,7 +264,7 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
         
         if services:
             servicios_lista = "\n".join([
-                f"- {getattr(s, 'nombre', 'Sin nombre')}: {getattr(s, 'descripcion', 'Sin descripción')} (Precio: {getattr(s, 'precio', 'N/A')})"
+                f"- {getattr(s, 'nombre', 'Sin nombre')}: {getattr(s, 'detalle', 'Sin descripción')} (Precio: {getattr(s, 'precio', 'N/A')})"
                 for s in services
             ])
         else:
@@ -267,8 +273,55 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
         logger.warning(f"[Assistant] No se pudieron cargar los servicios de la BD: {e}")
         servicios_lista = "No se pudo acceder a la lista de servicios en este momento."
 
-    # Genera la respuesta con FreeLLMAPI (puede lanzar ValueError).
-    prompt = _build_prompt(tenant, user, question, servicios_lista)
+    # Fetch business insights for the current tenant
+    try:
+        # A. Top 3 servicios más solicitados (últimos 30 días)
+        top_services_query = text("""
+            SELECT s.nombre, COUNT(a.id) as total_citas
+            FROM appointments a
+            JOIN services s ON a.service_id = s.id
+            WHERE a.tenant_id = :tenant_id 
+              AND a.date_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+              AND a.estado IN ('pending', 'completed')
+            GROUP BY s.id, s.nombre
+            ORDER BY total_citas DESC
+            LIMIT 3
+        """)
+        top_services = db.execute(top_services_query, {"tenant_id": tenant_id}).fetchall()
+        
+        top_services_text = "\n".join([f"- {row.nombre}: {row.total_citas} citas" for row in top_services]) if top_services else "No hay datos suficientes de los últimos 30 días."
+
+        # B. Top 5 clientes inactivos (no han venido en > 30 días)
+        inactive_clients_query = text("""
+            SELECT CONCAT(p.nombre, ' ', p.apellido) as nombre_completo, p.telefono, MAX(a.date_time) as ultima_visita
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.id
+            WHERE a.tenant_id = :tenant_id 
+              AND a.estado = 'completed'
+            GROUP BY p.id, p.nombre, p.apellido, p.telefono
+            HAVING MAX(a.date_time) < DATE_SUB(NOW(), INTERVAL 30 DAY)
+            ORDER BY ultima_visita DESC
+            LIMIT 5
+        """)
+        inactive_clients = db.execute(inactive_clients_query, {"tenant_id": tenant_id}).fetchall()
+        
+        inactive_clients_text = "\n".join([f"- {row.nombre_completo} (Tel: {row.telefono or 'N/A'}), última visita: {row.ultima_visita.strftime('%d/%m/%Y') if row.ultima_visita else 'N/A'}" for row in inactive_clients]) if inactive_clients else "Todos los clientes han visitado el SPA recientemente."
+
+        # C. Armar el bloque de contexto ejecutivo
+        business_context = f"""
+        ## 📊 RESUMEN EJECUTIVO DEL NEGOCIO (Datos en tiempo real)
+        - **Servicios más populares (últimos 30 días):**
+        {top_services_text}
+        
+        - **Clients que no han venido en más de 30 días (Oportunidad de reactivación):**
+        {inactive_clients_text}
+        """
+    except Exception as e:
+        logger.warning(f"[Assistant] Error al obtener resumen ejecutivo: {e}")
+        business_context = "\n## 📊 RESUMEN EJECUTIVO: No se pudieron cargar los datos de negocio en este momento."
+
+    # Generate response with FreeLLMAPI (may raise ValueError).
+    prompt = _build_prompt(tenant, user, question, servicios_lista, business_context)
     ai_response = _call_freellmapi(prompt)
 
     # Persistencia SOLO si la IA respondió correctamente.
