@@ -5,7 +5,7 @@
 # ============================================================
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Dict, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -20,7 +20,11 @@ class AssistantAskRequest(BaseModel):
         ...,
         min_length=1,
         max_length=2000,
-        description="Pregunta o consulta del usuario hacia la IA",
+        description="Pregunta o consulta del usuario hacia el asistente IA"
+    )
+    history: List[Dict[str, str]] = Field(
+        default=[],
+        description="Historial de la conversación previa para contexto del asistente"
     )
 
 

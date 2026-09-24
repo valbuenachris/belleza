@@ -23,7 +23,7 @@
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import httpx
 from sqlalchemy import func, or_, text
@@ -307,14 +307,35 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
         
         inactive_clients_text = "\n".join([f"- {row.nombre_completo} (Tel: {row.telefono or 'N/A'}), última visita: {row.ultima_visita.strftime('%d/%m/%Y') if row.ultima_visita else 'N/A'}" for row in inactive_clients]) if inactive_clients else "Todos los clientes han visitado el SPA recientemente."
 
+        # C. Últimos 5 pacientes con citas recientes (para contexto de seguimiento)
+        recent_patients_query = text("""
+            SELECT CONCAT(p.nombre, ' ', p.apellido) as nombre_paciente, s.nombre as servicio, a.date_time as fecha_cita
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.id
+            JOIN services s ON a.service_id = s.id
+            WHERE a.tenant_id = :tenant_id 
+              AND a.estado IN ('pending', 'completed')
+            ORDER BY a.date_time DESC
+            LIMIT 5
+        """)
+        recent_patients = db.execute(recent_patients_query, {"tenant_id": tenant_id}).fetchall()
+        
+        recent_patients_text = "\n".join([
+            f"- {row.nombre_paciente} (Servicio: {row.servicio}, Fecha: {row.fecha_cita.strftime('%d/%m/%Y') if row.fecha_cita else 'N/A'})" 
+            for row in recent_patients
+        ]) if recent_patients else "No hay citas recientes registradas."
+
         # C. Armar el bloque de contexto ejecutivo
         business_context = f"""
         ## 📊 RESUMEN EJECUTIVO DEL NEGOCIO (Datos en tiempo real)
         - **Servicios más populares (últimos 30 días):**
         {top_services_text}
         
-        - **Clients que no han venido en más de 30 días (Oportunidad de reactivación):**
+        - **Clientes inactivos (>30 días sin visita):**
         {inactive_clients_text}
+        
+        - **Últimos pacientes con citas recientes:**
+        {recent_patients_text}
         """
     except Exception as e:
         logger.warning(f"[Assistant] Error al obtener resumen ejecutivo: {e}")
