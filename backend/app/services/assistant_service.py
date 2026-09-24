@@ -34,6 +34,7 @@ from sqlalchemy import func, or_
 from ..config import settings
 from ..models.assistant import AssistantQuery
 from ..models.tenant import Tenant
+from ..models.service import Service
 from ..models.user import User
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ def _exc_summary(exc: Exception) -> str:
 # Prompt con contexto del tenant
 # ============================================================
 
-def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str) -> str:
+def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str, servicios_lista: str) -> str:
     """
     Construye el prompt del sistema con el contexto del SPA:
     el asistente actúa como experto de recepción/fidelidad del negocio
@@ -202,6 +203,7 @@ def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str)
     if tenant:
         meta = tenant.puntos_meta or 0
         premio = tenant.premio_fidelidad or ""
+    servicios = servicios_lista if servicios_lista else ""
     return (
         "Eres el asistente IA de un sistema de gestión para centros de "
         "estética y relajación (SPAs). Ayudas al personal del SPA a:\n"
@@ -213,6 +215,7 @@ def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str)
         f"otorga {meta} estrellas por cada sesión y, al alcanzar la meta, "
         f"se premia con: '{premio or 'una sesión gratuita'}'. El rol del "
         "usuario que pregunta es: " + user_rol + ".\n\n"
+        "Información actual del servicio: " + (servicios if servicios else "No hay datos de servicio disponibles") + "\n\n"
         "Reglas de respuesta:\n"
         "  - Responde SIEMPRE en español, de forma amable, clara y concisa.\n"
         "  - Si no conoces un dato específico, indícalo y sugiere consultar"
@@ -245,8 +248,27 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
 
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
+    # Fetch active services for the current tenant
+    try:
+        from ..models.service import Service
+        services = db.query(Service).filter(
+            Service.tenant_id == tenant_id,
+            Service.is_active == True
+        ).all()
+        
+        if services:
+            servicios_lista = "\n".join([
+                f"- {getattr(s, 'nombre', 'Sin nombre')}: {getattr(s, 'descripcion', 'Sin descripción')} (Precio: {getattr(s, 'precio', 'N/A')})"
+                for s in services
+            ])
+        else:
+            servicios_lista = "Actualmente no hay servicios activos registrados en la base de datos."
+    except Exception as e:
+        logger.warning(f"[Assistant] No se pudieron cargar los servicios de la BD: {e}")
+        servicios_lista = "No se pudo acceder a la lista de servicios en este momento."
+
     # Genera la respuesta con FreeLLMAPI (puede lanzar ValueError).
-    prompt = _build_prompt(tenant, user, question)
+    prompt = _build_prompt(tenant, user, question, servicios_lista)
     ai_response = _call_freellmapi(prompt)
 
     # Persistencia SOLO si la IA respondió correctamente.
