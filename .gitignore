@@ -64,3 +64,12 @@ build/
 # Migraciones (si se generan localmente)
 backend/alembic/versions/*.pyc
 .next/
+
+# --- SEGURIDAD: Credenciales y Secrets ---
+**/service-account*.json
+**/*-credentials.json
+**/*.p8
+**/.env
+**/.env.*
+google-creds/
+google-credentials/
