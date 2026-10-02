@@ -7,9 +7,10 @@ import { useAuth } from '../context/AuthContext';
 import { Page, Patient, Appointment, Service } from '../types';
 import { api } from '../services/api';
 import { requestPatientFicha } from '../services/patientActions';
+import NotificationBell from './NotificationBell';
 import {
   LayoutDashboard, Building2, Users, Calendar, UserCheck,
-  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Bell, Search, BookOpen, Tag, BarChart, Bot
+  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Search, BookOpen, Tag, BarChart, Bot
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -389,10 +390,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="relative p-2.5 rounded-xl hover:bg-stone-50 transition-colors">
-              <Bell size={20} className="text-stone-500" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
+            <NotificationBell />
           </div>
         </header>
 

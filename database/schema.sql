@@ -333,6 +333,45 @@ CREATE TABLE IF NOT EXISTS `assistant_queries` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de consultas al asistente IA (historial y feedback)';
 
 -- ============================================================
+-- Tabla: notifications
+-- Notificaciones internas por usuario (campana del Dashboard):
+-- nuevas citas, recordatorios, recompensas y avisos del sistema.
+-- Aisladas por tenant con estado de lectura individual.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `notifications` (
+    `id` CHAR(36) NOT NULL COMMENT 'UUID de la notificación',
+    `tenant_id` CHAR(36) NOT NULL COMMENT 'FK al tenant',
+    `user_id` CHAR(36) NOT NULL COMMENT 'FK al usuario destinatario',
+    `title` VARCHAR(200) NOT NULL COMMENT 'Título corto de la notificación',
+    `message` TEXT NULL COMMENT 'Detalle o cuerpo de la notificación',
+    `type` VARCHAR(50) NOT NULL DEFAULT 'info' COMMENT 'Tipo: appointment, appointment_reminder, loyalty, system',
+    `is_read` BOOLEAN NOT NULL DEFAULT FALSE COMMENT 'TRUE si el usuario ya la leyó',
+    `read_at` DATETIME NULL DEFAULT NULL COMMENT 'Fecha/hora en la que se marcó como leída',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NULL DEFAULT NULL,
+    `deleted_at` DATETIME NULL DEFAULT NULL COMMENT 'Soft delete timestamp',
+    `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
+
+    PRIMARY KEY (`id`),
+    INDEX `idx_tenant_active` (`tenant_id`, `is_active`),
+    INDEX `idx_notifications_user_read` (`tenant_id`, `user_id`, `is_read`),
+    INDEX `idx_notifications_tenant_created` (`tenant_id`, `created_at`),
+    INDEX `idx_notifications_user` (`user_id`),
+    INDEX `idx_notifications_type` (`type`),
+
+    CONSTRAINT `fk_notifications_tenant`
+        FOREIGN KEY (`tenant_id`)
+        REFERENCES `tenants` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT `fk_notifications_user`
+        FOREIGN KEY (`user_id`)
+        REFERENCES `users` (`id`)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tabla de notificaciones internas por usuario (campana del Dashboard)';
+
+-- ============================================================
 -- NOTA: Los triggers de actualización automática de updated_at
 -- fueron ELIMINADOS. updated_at lo mantiene el ORM (onupdate),
 -- alineado con las migraciones de Alembic y con create_all.

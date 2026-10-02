@@ -266,6 +266,7 @@ strict = os.getenv("STARTUP_VALIDATION_STRICT", "true").strip().lower() not in (
 REQUIRED_TABLES = [
     "tenants", "users", "patients", "services", "appointments",
     "clinical_records", "pass_registrations", "assistant_queries",
+    "notifications",
 ]
 REQUIRED_COLUMNS = {
     "tenants": ["puntos_meta", "premio_fidelidad", "tarjeta_color_hex"],

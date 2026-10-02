@@ -9,6 +9,7 @@ from .appointment import Appointment
 from .clinical_record import ClinicalRecord
 from .pass_registration import PassRegistration
 from .assistant import AssistantQuery
+from .notification import Notification
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "ClinicalRecord",
     "PassRegistration",
     "AssistantQuery",
+    "Notification",
 ]

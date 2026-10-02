@@ -39,6 +39,10 @@ import {
   AssistantHistoryResponse,
   AssistantQuery,
   AssistantStatsResponse,
+  AppNotification,
+  NotificationsResponse,
+  UnreadNotificationsCountResponse,
+  NotificationMarkAllReadResponse,
 } from '../types';
 
 // ============================================================
@@ -80,6 +84,8 @@ interface HttpOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
   headers?: Record<string, string>;
+  /** Modo de caché del fetch (p.ej. 'no-store' para polling). */
+  cache?: RequestCache;
 }
 
 // ============================================================
@@ -258,6 +264,7 @@ async function request<T>(path: string, options: HttpOptions = {}): Promise<T> {
     method = 'GET',
     body,
     headers = {},
+    cache,
   } = options;
 
   const buildFetch = (token?: string | null): Promise<Response> => {
@@ -273,6 +280,7 @@ async function request<T>(path: string, options: HttpOptions = {}): Promise<T> {
       reqHeaders['content-type'] = 'application/json';
     }
     const init: RequestInit = { method, headers: reqHeaders, credentials: 'include' };
+    if (cache) init.cache = cache;
     if (body !== undefined) {
       init.body = JSON.stringify(body);
     }
@@ -762,6 +770,42 @@ export const api = {
   async deleteAssistantQuery(queryId: string): Promise<{ deleted: boolean; message: string }> {
     return request<{ deleted: boolean; message: string }>(`/assistant/queries/${queryId}`, {
       method: 'DELETE',
+    });
+  },
+
+  // ----------------------------------------------------------
+  // Notificaciones internas (campana del Dashboard)
+  // ----------------------------------------------------------
+  async getNotifications(params?: {
+    is_read?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<NotificationsResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 20) });
+    if (params?.is_read !== undefined) query.set('is_read', String(params.is_read));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    return request<NotificationsResponse>(`/notifications?${query.toString()}`, {
+      // Polling: impedir que el navegador/proxy sirvan una respuesta cacheada.
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+  },
+
+  async getUnreadNotificationsCount(): Promise<UnreadNotificationsCountResponse> {
+    return request<UnreadNotificationsCountResponse>('/notifications/unread-count', {
+      // Polling: impedir que el navegador/proxy sirvan una respuesta cacheada.
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+  },
+
+  async markNotificationRead(id: string): Promise<AppNotification> {
+    return request<AppNotification>(`/notifications/${id}/read`, { method: 'PUT' });
+  },
+
+  async markAllNotificationsRead(): Promise<NotificationMarkAllReadResponse> {
+    return request<NotificationMarkAllReadResponse>('/notifications/read-all', {
+      method: 'PUT',
     });
   },
 };

@@ -26,12 +26,10 @@ services:
       - GOOGLE_WALLET_ISSUER_ID=${GOOGLE_WALLET_ISSUER_ID}
       - GOOGLE_WALLET_CLASS_ID=${GOOGLE_WALLET_CLASS_ID}
       - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
-    depends_on:
-      redis:
-        condition: service_healthy
+    # NOTA: Redis está desacoplado del arranque (el backend aún no lo usa).
+    # Si se reactiva, restaurar depends_on con condition: service_healthy.
     volumes:
       - ./backend/app:/app/app
-      - ./backend/.env:/app/.env:ro
       - ./google-credentials:/app/google-credentials:ro
     networks:
       - spa_network

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models.patient import Patient
 from ..models.tenant import Tenant
+from . import notification_service
 from .pass_signer import (
     is_signing_configured,
     sign_manifest,
@@ -242,6 +243,12 @@ def award_loyalty_points(
 
     # Notifica a los dispositivos registrados (push APNs, best-effort).
     notify_pass_update(db, patient)
+
+    # Notificación interna al staff cuando se otorga una recompensa.
+    if sesion_otorgada:
+        notification_service.notify_loyalty_reward(
+            db, patient, config["premio_fidelidad"], umbrales
+        )
 
     if sync_google_wallet:
         # Sincroniza la tarjeta en Google Wallet (async, best-effort, nunca

@@ -15,7 +15,7 @@ from ..models.patient import Patient
 from ..models.user import User
 from ..models.service import Service
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate
-from ..services import loyalty_service
+from ..services import loyalty_service, notification_service
 from ..utils.security import generate_uuid
 
 logger = logging.getLogger(__name__)
@@ -219,6 +219,10 @@ def create_appointment(db: Session, tenant_id: str, data: AppointmentCreate) -> 
     # también otorga su estrella.
     if appointment.estado == "completed":
         loyalty_service.award_loyalty_points(db, patient)
+
+    # Notificación interna para el personal (best-effort: nunca rompe la
+    # creación de la cita si falla).
+    notification_service.notify_new_appointment(db, appointment)
 
     logger.info(f"Cita creada: {appointment.id} para {appointment.patient} ({date_time})")
     return appointment

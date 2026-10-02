@@ -419,4 +419,37 @@ export interface AssistantStatusResponse {
   missing: string[];
 }
 
+// ============================================================
+// Notificaciones internas (campana del Dashboard)
+// ============================================================
+
+export type NotificationType = 'appointment' | 'appointment_reminder' | 'loyalty' | 'system' | 'info' | string;
+
+export interface AppNotification {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  title: string;
+  message: string | null;
+  type: NotificationType;
+  is_read: boolean;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationsResponse {
+  notifications: AppNotification[];
+  total: number;
+  unread_count: number;
+}
+
+export interface UnreadNotificationsCountResponse {
+  unread_count: number;
+}
+
+export interface NotificationMarkAllReadResponse {
+  updated: number;
+  unread_count: number;
+}
+
 export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant';
