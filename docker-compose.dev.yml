@@ -23,9 +23,8 @@ services:
       - "5678:5678"
 
   frontend:
-    # Montar archivos estáticos para ver cambios en tiempo real
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
+    # Sirve el build de React incluido en la imagen (el frontend legacy
+    # que se montaba aquí fue eliminado en la limpieza de código muerto).
     ports:
       - "80:80"
 

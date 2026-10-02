@@ -1,186 +1,199 @@
-# 🧖 SPA Management System
+# SPA Management System
 
-Sistema de gestión integral para SPAs (centros de estética y relajación) con arquitectura **multitenant SaaS**. Diseñado para ser vendido a múltiples spas, donde cada uno tiene sus datos completamente aislados compartiendo la misma infraestructura.
+## Descripción General
 
-## 🏗️ Arquitectura
+Sistema de gestión integral para SPAs (centros de estética y relajación) con arquitectura **multitenant SaaS**: múltiples spas comparten la misma infraestructura con datos completamente aislados por `tenant_id`.
 
+---
+
+## Stack de Arquitectura
+
+- **Backend:** Python 3.11 + FastAPI 0.109 + SQLAlchemy 2.0 + Alembic 1.13
+- **Frontend:** React 18 + TypeScript + Vite 6 + Tailwind CSS 4 (SPA en `src/`)
+- **Base de datos:** MySQL 8 externa (configurada por `.env`)
+- **Caché / Rate limiting:** Redis 7 (almacenamiento compartido de slowapi)
+- **Proxy y estáticos:** Nginx 1.25 (sirve el build de React y hace reverse proxy de `/api/` y `/v1/`)
+- **IA:** FreeLLMAPI — proxy self-hosted OpenAI-compatible (red Docker `freellmapi_default`)
+- **Autenticación:** JWT (python-jose) + bcrypt
+- **Contenedores:** Docker + Docker Compose
+
+---
+
+## Características Principales
+
+- **Multitenancy real:** aislamiento por `tenant_id` en modelos, routers y middleware, con validación defensiva del tenant.
+- **Autenticación y roles:** access/refresh tokens JWT y roles `superadmin`, `admin`, `manager`, `receptionist`, `therapist`.
+- **Operación del SPA:** pacientes, servicios, citas (con validación anti-doble-reserva), historial clínico y reportes.
+- **Programa de fidelidad:** estrellas por cita completada, sesiones gratis, canje y escáner QR.
+- **Apple Wallet:** generación de `.pkpass`, firma PKCS#7 opcional, web service `/v1` y push APNs (requiere credenciales para producción).
+- **Google Wallet:** LoyaltyClass/LoyaltyObject, enlace "Añadir a Wallet" y sincronización de puntos (deshabilitado por defecto).
+- **Asistente IA:** integración con FreeLLMAPI con **historial de conversación** (array de mensajes estilo OpenAI) y contexto de negocio dinámico (RAG: servicios top, clientes inactivos, citas recientes).
+- **Notificaciones internas:** campana en el Dashboard con polling cada 45 s, estado de lectura por usuario y generación por eventos (nueva cita, recompensa de fidelidad, recordatorios).
+- **Rate limiting:** 5 req/min en `login`/`register` y 20 req/min por usuario en el asistente, **compartido entre workers** vía Redis.
+- **Arranque seguro:** validación estricta de configuración y migraciones Alembic aplicadas automáticamente con `upgrade head` (nunca `stamp head`).
+
+---
+
+## Variables de Entorno
+
+> ⚠️ **WARNING: Use ONLY the root `.env` file. Do not create or mount `backend/.env`.**
+> `docker-compose.yml` inyecta el `.env` raíz vía `env_file`; el antiguo `backend/.env` está deprecado y **no** se monta. Crear o montar otro `.env` provoca drift de configuración (p. ej. errores 401 del asistente).
+
+Variables esenciales (ver `.env.example` para la lista completa; `.env` está en `.gitignore`):
+
+```bash
+# --- Base de datos (MySQL externa) ---
+DB_HOST=tu-host-mysql
+DB_PORT=3306
+DB_USER=spa_user
+DB_PASSWORD=tu_password_seguro
+DB_NAME=spa_management
+
+# --- Seguridad / JWT ---
+SECRET_KEY=genera_una_clave_de_al_menos_32_caracteres
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# --- Aplicación ---
+APP_NAME=SPA Management System
+APP_VERSION=1.0.0
+DEBUG=false
+ENVIRONMENT=production
+API_PREFIX=/api/v1
+CORS_ORIGINS=https://tu-dominio.com,https://www.tu-dominio.com
+DOCKER_ENV=true
+ENABLE_DOCS=false
+
+# --- Redis (rate limiting compartido entre workers de Gunicorn) ---
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=tu_password_redis
+
+# --- Asistente IA (FreeLLMAPI - proxy OpenAI-compatible) ---
+FREELLMAPI_ENABLED=true
+FREELLMAPI_API_KEY=tu_api_key
+FREELLMAPI_BASE_URL=http://freellmapi-freellmapi-1:3001/v1
+FREELLMAPI_MODEL=auto
+FREELLMAPI_TIMEOUT=30
+
+# --- Arranque seguro ---
+# true (default): el contenedor ABORTA si hay configuración inválida
+# (FreeLLMAPI/Google Wallet habilitados sin credenciales) o drift de esquema.
+STARTUP_VALIDATION_STRICT=true
+
+# --- Wallets (opcionales; detalle completo en .env.example) ---
+WALLET_WEB_SERVICE_BASE_URL=https://tu-dominio.com
+GOOGLE_WALLET_ENABLED=false
+GOOGLE_WALLET_ISSUER_ID=
+GOOGLE_WALLET_CLASS_ID=
+GOOGLE_APPLICATION_CREDENTIALS=/app/google-credentials/service-account.json
+APNS_ENABLED=false
+APNS_KEY_ID=
+APNS_TEAM_ID=
+APNS_P8_PATH=
+APNS_TOPIC=pass.com.tuuspa.fidelidad
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Docker Compose                          │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌────────┐ │
-│  │ Frontend │→ │   Backend    │→ │  MySQL   │  │ Redis  │ │
-│  │  (Nginx) │  │  (FastAPI)   │  │   8.0    │  │   7    │ │
-│  │ Puerto 80│  │ Puerto 8000  │  │ Puerto   │  │Puerto  │ │
-│  │          │  │              │  │   3306   │  │  6379  │ │
-│  └──────────┘  └──────────────┘  └──────────┘  └────────┘ │
-│       ↑               ↑              ↑            ↑        │
-│       └───────────────┴──────────────┴────────────┘        │
-│                    spa_network (bridge)                     │
-└─────────────────────────────────────────────────────────────┘
-```
 
-## ✨ Características
+**Notas:**
 
-- **Multitenancy**: Base de datos compartida con separación por `tenant_id`
-- **Autenticación JWT**: Tokens seguros con refresh tokens
-- **API REST**: FastAPI con documentación automática (Swagger/ReDoc)
-- **Dockerizado**: Todo el sistema en contenedores con healthchecks
-- **Seguridad**: Bcrypt, CORS, headers de seguridad, usuarios no-root
-- **Frontend minimalista**: HTML5 + CSS3 + JavaScript vanilla
-- **Escalable**: Diseñado para miles de tenants
+- `STARTUP_VALIDATION_STRICT=true` aborta el arranque si `FREELLMAPI_ENABLED=true` sin API key, `GOOGLE_WALLET_ENABLED=true` sin credenciales, o si el esquema no tiene historial de Alembic / presenta drift. Usa `false` **solo** para reparaciones puntuales.
+- Si Redis no está disponible al arrancar, el backend avisa por log y degrada el rate limiting a memoria por worker (los límites dejan de compartirse).
+- Las credenciales de wallet (`./google-credentials/`) nunca deben subirse al repositorio.
 
-## 📋 Requisitos
+---
+
+## Puesta en Marcha / Deployment
+
+**Requisitos previos:**
 
 - Docker 20.10+
-- Docker Compose 2.0+
-- 2GB RAM mínimo recomendado
+- Docker Compose v2
+- 2 GB de RAM mínimo recomendado
+- Una base de datos MySQL 8 accesible (externa)
 
-## 🚀 Inicio Rápido
+**Puesta en marcha en 3 pasos:**
 
 ```bash
-# 1. Clonar repositorio
-git clone https://github.com/tu-usuario/spa-management-system.git
-cd spa-management-system
-
-# 2. Configurar variables de entorno
+# 1) Configuración: usa el .env raíz como única fuente de verdad
 cp .env.example .env
-# Editar .env con valores seguros (especialmente SECRET_KEY)
+#    Edita .env con tus valores reales (DB_*, SECRET_KEY, REDIS_PASSWORD,
+#    FREELLMAPI_* y credenciales de wallet si aplica).
 
-# 3. Levantar todos los servicios
-docker-compose up -d
+# 2) Construir las imágenes
+docker compose build
 
-# 4. Verificar que todo esté funcionando
-docker-compose ps
-# Todos los servicios deben mostrar "running" o "healthy"
-
-# 5. Acceder al sistema
-# Frontend: http://localhost
-# API:      http://localhost:8000
-# Docs:     http://localhost:8000/docs
-# phpMyAdmin: http://localhost:8080 (solo con perfil development)
+# 3) Levantar el stack
+docker compose up -d
 ```
 
-## 🔑 Credenciales por Defecto
+**Qué ocurre en el primer arranque:**
 
-| Rol | Email | Contraseña |
-|-----|-------|------------|
-| Superadmin | superadmin@spa.com | Admin123! |
-| Admin Demo | admin@demo.com | Admin123! |
+- `backend/entrypoint.sh` espera a que MySQL esté disponible, valida la configuración y aplica **automáticamente** las migraciones con `alembic upgrade head` (crea o actualiza el esquema; es idempotente y nunca ejecuta `stamp head`).
+- Si la validación estricta detecta un problema, el contenedor se detiene con un mensaje claro en los logs (`docker compose logs -f backend`).
 
-> ⚠️ **IMPORTANTE**: Cambia estas credenciales inmediatamente en producción.
+**Accesos por defecto (compose base):**
 
-## 📁 Estructura del Proyecto
+- Frontend: `http://localhost:8088`
+- API / health: `http://localhost:8000/health`
+- Documentación interactiva: solo si `ENABLE_DOCS=true` (deshabilitada en producción).
 
-```
-spa-management-system/
-├── docker-compose.yml          # Orquestación principal
-├── docker-compose.dev.yml      # Override desarrollo
-├── docker-compose.prod.yml     # Override producción
-├── .env                        # Variables de entorno
-├── backend/
-│   ├── Dockerfile              # Imagen Python multi-stage
-│   ├── requirements.txt        # Dependencias Python
-│   ├── alembic.ini             # Configuración migraciones
-│   └── app/
-│       ├── main.py             # Punto de entrada FastAPI
-│       ├── config.py           # Configuración (pydantic-settings)
-│       ├── database.py         # Conexión SQLAlchemy
-│       ├── dependencies.py     # Inyección de dependencias
-│       ├── middleware/         # Tenant + Auth middleware
-│       ├── models/             # Modelos SQLAlchemy
-│       ├── schemas/            # Schemas Pydantic
-│       ├── routers/            # Endpoints API
-│       ├── services/           # Lógica de negocio
-│       └── utils/              # Utilidades (security, validators)
-├── frontend/
-│   ├── Dockerfile              # Imagen Nginx
-│   ├── nginx.conf              # Configuración Nginx
-│   ├── index.html              # Dashboard principal
-│   ├── login.html              # Página de login
-│   ├── css/                    # Estilos CSS3
-│   └── js/                     # JavaScript vanilla
-└── database/
-    ├── init.sql                # Inicialización DB
-    ├── schema.sql              # Esquema de tablas
-    └── seed.sql                # Datos iniciales
-```
-
-## 🔌 Endpoints Principales
-
-### Autenticación
-- `POST /api/v1/auth/login` - Iniciar sesión
-- `POST /api/v1/auth/register` - Registrar nuevo SPA
-- `POST /api/v1/auth/refresh` - Refrescar token
-- `GET  /api/v1/auth/me` - Usuario actual
-
-### Tenants (Solo Superadmin)
-- `POST   /api/v1/tenants` - Crear tenant
-- `GET    /api/v1/tenants` - Listar tenants
-- `GET    /api/v1/tenants/{id}` - Obtener tenant
-- `PUT    /api/v1/tenants/{id}` - Actualizar tenant
-- `DELETE /api/v1/tenants/{id}` - Eliminar tenant (soft delete)
-
-## 🛠️ Comandos Útiles
+**Producción (recomendado):**
 
 ```bash
-# Ver logs en tiempo real
-docker-compose logs -f backend
-
-# Acceder a MySQL
-docker-compose exec mysql mysql -u spa_user -p spa_management
-
-# Reiniciar un servicio
-docker-compose restart backend
-
-# Detener todo
-docker-compose down
-
-# Detener y eliminar volúmenes (¡cuidado! borra datos)
-docker-compose down -v
-
-# Levantar con phpMyAdmin (desarrollo)
-docker-compose --profile development up -d
-
-# Producción
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-## 🔒 Seguridad
+El override de producción elimina los puertos publicados, aplica límites de recursos, rotación de logs y `restart: always`.
 
-- Contraseñas hasheadas con bcrypt
-- Tokens JWT con expiración configurable
-- Filtrado automático por tenant_id (no hay fuga de datos)
-- Headers de seguridad en Nginx (X-Frame-Options, CSP, etc.)
-- Contenedores con usuarios no-root
-- Variables de entorno para secrets
+**Datos semilla (solo en bases de datos nuevas inicializadas con `database/seed.sql`):** se crea el superadmin `superadmin@spa.com` con la contraseña placeholder `CHANGE_ME_ON_FIRST_LOGIN_!23`. **Cámbiala inmediatamente** en producción.
 
-## 📊 Tecnologías
+---
 
-| Componente | Tecnología |
-|------------|------------|
-| Backend | Python 3.11 + FastAPI |
-| Frontend | HTML5 + CSS3 + JavaScript Vanilla |
-| Base de datos | MySQL 8.0 |
-| Cache | Redis 7 |
-| ORM | SQLAlchemy 2.0 |
-| Migraciones | Alembic |
-| Auth | JWT (python-jose) |
-| Contenedores | Docker + Docker Compose |
-| Proxy | Nginx |
+## Estructura del Proyecto
 
-## 🗺️ Roadmap
-
-- [ ] Módulo de Citas (agenda, calendario)
-- [ ] Gestión de Pacientes (historial clínico)
-- [ ] Catálogo de Servicios
-- [ ] Sistema de Pagos
-- [ ] Reportes y Analíticas
-- [ ] Notificaciones (Email/SMS/WhatsApp)
-- [ ] App Móvil (React Native)
-- [ ] Rate Limiting con Redis
-- [ ] Multi-idioma (i18n)
-- [ ] Integración con pasarelas de pago
-
-## 📄 Licencia
-
-MIT License - Ver archivo LICENSE para más detalles.
+```text
+spa-management-system/
+├── backend/
+│   ├── Dockerfile                  # Imagen Python multi-stage (usuario no-root)
+│   ├── entrypoint.sh               # Espera DB + validación estricta + alembic upgrade head
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   ├── alembic/versions/           # Migraciones 0001..0011
+│   └── app/
+│       ├── main.py                 # FastAPI + middleware + rate limiting
+│       ├── config.py               # pydantic-settings (config efectiva)
+│       ├── database.py
+│       ├── dependencies.py
+│       ├── middleware/             # Auth JWT + validación de tenant
+│       ├── models/                 # SQLAlchemy (notifications, assistant, wallet…)
+│       ├── schemas/                # Pydantic
+│       ├── routers/                # auth, tenants, patients, appointments, services,
+│       │                           # users, clinical_records, loyalty, assistant, notifications
+│       ├── services/               # Lógica de negocio (loyalty, assistant, notifications…)
+│       └── utils/                  # security, validators, rate_limit
+├── src/                            # Frontend React 18 + TypeScript + Vite (única UI)
+│   ├── components/                 # Layout, NotificationBell…
+│   ├── context/                    # AuthContext
+│   ├── pages/                      # Dashboard, Citas, Pacientes, Asistente IA, Reportes…
+│   ├── services/                   # Cliente API
+│   └── types/
+├── frontend/
+│   ├── Dockerfile                  # Build de React + Nginx
+│   └── nginx.conf                  # SPA + proxy /api/ y /v1/ + headers de seguridad
+├── database/
+│   ├── init.sql
+│   ├── schema.sql                  # Paridad con las migraciones de Alembic
+│   └── seed.sql                    # Datos semilla (contraseña placeholder)
+├── scripts/
+│   └── wallet_e2e_diagnostic.sh    # Diagnóstico E2E del web service de Apple Wallet
+├── docker-compose.yml              # Stack base
+├── docker-compose.prod.yml         # Override de producción
+├── docker-compose.dev.yml          # Override de desarrollo (hot-reload backend)
+├── index.html                      # Entry point de Vite
+├── package.json
+├── tsconfig.json
+├── vite.config.js
+├── .env                            # SINGLE SOURCE OF TRUTH (no versionado)
+└── .env.example                    # Plantilla de variables de entorno
+```
