@@ -6,7 +6,7 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -26,6 +26,7 @@ from ..services.auth_service import (
 )
 from ..dependencies import get_current_user
 from ..models.user import User
+from ..utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +76,11 @@ def _serialize_tenant(tenant) -> Dict[str, Any]:
     summary="Iniciar sesión",
     description="Autentica un usuario con email y contraseña. Retorna tokens JWT.",
 )
+@limiter.limit("5/minute")
 def login(
     credentials: UserLogin,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     """
@@ -197,9 +200,12 @@ def login(
     summary="Registrar nuevo SPA",
     description="Crea un nuevo tenant (SPA) y su usuario administrador.",
 )
+@limiter.limit("5/minute")
 def register(
     tenant_data: TenantCreate,
     admin_data: UserCreate,
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     """

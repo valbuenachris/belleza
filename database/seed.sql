@@ -6,6 +6,16 @@
 -- (docker-entrypoint-initdb.d). Idempotente: usa INSERT IGNORE
 -- con IDs fijos para no duplicar registros.
 -- ============================================================
+-- ⚠️  ADVERTENCIA DE SEGURIDAD - LEER ANTES DE DESPLEGAR  ⚠️
+-- ------------------------------------------------------------
+-- Estas credenciales semilla son PÚBLICAS y NO deben usarse en
+-- producción. El superadmin se crea con la contraseña placeholder
+-- "CHANGE_ME_ON_FIRST_LOGIN_!23" (cámbiala en el primer login).
+--   * NO ejecutes este archivo contra una base de datos de producción
+--     sin cambiar la contraseña del superadmin inmediatamente.
+--   * En producción crea el superadmin con una contraseña única y
+--     gestionada con un secret manager.
+-- ============================================================
 
 SET NAMES utf8mb4;
 
@@ -51,7 +61,7 @@ INSERT IGNORE INTO `tenants` (
 -- ------------------------------------------------------------
 -- Superadmin global (tenant_id = NULL)
 -- Email: superadmin@spa.com
--- Contraseña: Admin123!
+-- Contraseña: CHANGE_ME_ON_FIRST_LOGIN_!23  (PLACEHOLDER - cambiar en el primer login)
 -- Hash bcrypt generado con el mismo CryptContext de utils/security.py
 -- ------------------------------------------------------------
 INSERT IGNORE INTO `users` (
@@ -73,7 +83,7 @@ INSERT IGNORE INTO `users` (
     NULL,                                     -- superadmin global no pertenece a un tenant
     'superadmin',
     'superadmin@spa.com',
-    '$2b$12$Ro37lHg6/WH8CnJixgI/AeuOIS3OGerRUSKxkhHHmzL5kCp96/v7y',
+    '$2b$12$fuvvcyJV..Rdd6cj60kDUO5V692DIAywMRNxJAeCKH4RS6.YAFy0.',
     'Super',
     'Admin',
     'superadmin',

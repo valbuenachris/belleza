@@ -9,7 +9,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -27,6 +27,7 @@ from ..schemas.assistant import (
     AssistantStatusResponse,
 )
 from ..services import assistant_service
+from ..utils.rate_limit import limiter, user_or_ip_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assistant", tags=["Asistente IA"])
@@ -84,8 +85,11 @@ def assistant_status(
         "guardan en el historial del tenant para analítica."
     ),
 )
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 def ask_assistant(
     body: AssistantAskRequest,
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_assistant_access),
     tenant_id: str = Depends(get_current_tenant_id),

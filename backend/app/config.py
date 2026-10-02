@@ -5,6 +5,8 @@
 
 import os
 from typing import List
+from urllib.parse import quote
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
@@ -69,6 +71,8 @@ class Settings(BaseSettings):
     # ----------------------------------------------------------
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
+    # Password de Redis (prod: --requirepass). Vacío = sin autenticación.
+    REDIS_PASSWORD: str = ""
     
     # ----------------------------------------------------------
     # Apple Wallet Web Service (actualización dinámica de pases)
@@ -225,8 +229,12 @@ class Settings(BaseSettings):
     
     @property
     def REDIS_URL(self) -> str:
-        """URL de conexión a Redis."""
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+        """
+        URL de conexión a Redis. Incluye REDIS_PASSWORD (URL-encoded) si
+        está definida, para que funcione con `--requirepass` de producción.
+        """
+        auth = f":{quote(self.REDIS_PASSWORD, safe='')}@" if self.REDIS_PASSWORD else ""
+        return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/0"
     
     @property
     def cors_origins_list(self) -> List[str]:

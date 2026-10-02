@@ -13,12 +13,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from .config import settings
 from .database import init_db, check_connection, get_connection_info
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
 from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty, assistant, notifications
+from .utils.rate_limit import limiter
 
 # ============================================================
 # Configuración de logging
@@ -113,6 +116,16 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.docs_available else None,
     lifespan=lifespan,
 )
+
+# ============================================================
+# Rate limiting (slowapi)
+# Límites por endpoint definidos con @limiter.limit(...) en los
+# routers. El handler devuelve 429 + cabeceras X-RateLimit-* y
+# Retry-After cuando se excede el límite.
+# ============================================================
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ============================================================
