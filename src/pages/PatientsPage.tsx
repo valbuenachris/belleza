@@ -700,6 +700,14 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
   const fmtMoney = (v: number) =>
     `$${v.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
+  // Formato compacto SOLO para el total invertido (evita desbordes en móvil).
+  // Miles: "$30k", "$45k", "$45.9k". Importes < 1000 conservan fmtMoney.
+  const fmtMoneyCompact = (v: number) => {
+    if (Math.abs(v) < 1000) return fmtMoney(v);
+    const compact = Math.round((v / 1000) * 10) / 10;
+    return `$${Number.isInteger(compact) ? compact : compact.toFixed(1)}k`;
+  };
+
   const submitRecord = async (payload: ClinicalRecordCreateInput) => {
     setSavingRecord(true);
     setRecordsError('');
@@ -983,18 +991,18 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
           {activeTab === 'appointments' && (
             <>
               {/* Estadísticas */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-4 bg-emerald-50 rounded-xl text-center">
-                  <p className="text-2xl font-bold text-emerald-700">{totalCitas}</p>
-                  <p className="text-xs text-stone-500 mt-1">Citas atendidas</p>
+              <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-3">
+                <div className="p-3 sm:p-4 bg-emerald-50 rounded-xl text-center min-w-0 overflow-hidden">
+                  <p className="text-lg sm:text-2xl font-bold text-emerald-700 break-words">{totalCitas}</p>
+                  <p className="text-xs text-stone-500 mt-1 break-words">Citas atendidas</p>
                 </div>
-                <div className="p-4 bg-blue-50 rounded-xl text-center">
-                  <p className="text-2xl font-bold text-blue-700">{fmtMoney(totalGastos)}</p>
-                  <p className="text-xs text-stone-500 mt-1">Total invertido</p>
+                <div className="p-3 sm:p-4 bg-blue-50 rounded-xl text-center min-w-0 overflow-hidden">
+                  <p className="text-lg sm:text-2xl font-bold text-blue-700 break-words">{fmtMoneyCompact(totalGastos)}</p>
+                  <p className="text-xs text-stone-500 mt-1 break-words">Total invertido</p>
                 </div>
-                <div className="p-4 bg-violet-50 rounded-xl text-center">
-                  <p className="text-xl font-bold text-violet-700 mt-0.5">{ultimaVisita ? fmtDate(ultimaVisita.toISOString()) : '—'}</p>
-                  <p className="text-xs text-stone-500 mt-1">Última visita</p>
+                <div className="p-3 sm:p-4 bg-violet-50 rounded-xl text-center min-w-0 overflow-hidden">
+                  <p className="text-base sm:text-xl font-bold text-violet-700 mt-0.5 break-words">{ultimaVisita ? fmtDate(ultimaVisita.toISOString()) : '—'}</p>
+                  <p className="text-xs text-stone-500 mt-1 break-words">Última visita</p>
                 </div>
               </div>
 
