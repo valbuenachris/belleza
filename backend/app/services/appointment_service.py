@@ -147,6 +147,46 @@ def resolve_date_time(date_time: Optional[datetime], fecha: Optional[str], time:
 
 
 # ============================================================
+# Fidelidad: premio exactamente una vez por cita
+# ============================================================
+
+def _award_loyalty_once(db: Session, appointment: Appointment, patient: Patient) -> bool:
+    """
+    Otorga la estrella de fidelidad de una cita exactamente una vez.
+
+    Bloquea la fila de la cita (SELECT ... FOR UPDATE) y reevalúa
+    `loyalty_awarded` tras adquirir el lock, de modo que:
+      - alternar completed -> pending -> completed no vuelve a premiar, y
+      - dos peticiones concurrentes que completan la misma cita no
+        otorgan la estrella dos veces.
+
+    La marca `loyalty_awarded` y el incremento del paciente se confirman
+    en el mismo commit (lo hace `award_loyalty_points`), así que la
+    operación es atómica.
+
+    Returns:
+        True si otorgó la estrella en esta llamada; False si ya estaba
+        premiada o la cita no existe.
+    """
+    locked = (
+        db.query(Appointment)
+        .filter(Appointment.id == appointment.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if locked is None or locked.loyalty_awarded:
+        return False
+
+    # Marca antes del commit de award_loyalty_points: el flag de la cita y
+    # el saldo del paciente entran en la misma transacción.
+    locked.loyalty_awarded = True
+    loyalty_service.award_loyalty_points(db, patient)
+    db.refresh(appointment)
+    return True
+
+
+# ============================================================
 # Crear cita
 # ============================================================
 
@@ -216,9 +256,9 @@ def create_appointment(db: Session, tenant_id: str, data: AppointmentCreate) -> 
     db.refresh(appointment)
 
     # Programa de fidelidad: una cita creada directamente como completada
-    # también otorga su estrella.
+    # también otorga su estrella (una sola vez por cita).
     if appointment.estado == "completed":
-        loyalty_service.award_loyalty_points(db, patient)
+        _award_loyalty_once(db, appointment, patient)
 
     # Notificación interna para el personal (best-effort: nunca rompe la
     # creación de la cita si falla).
@@ -327,8 +367,6 @@ def update_appointment(
 
     body = data.model_dump(exclude_unset=True)
 
-    estado_previo = appointment.estado
-
     if "estado" in body:
         body["estado"] = body["estado"].lower()
         if body["estado"] not in ESTADOS_CITA:
@@ -372,15 +410,15 @@ def update_appointment(
     db.commit()
     db.refresh(appointment)
 
-    # Programa de fidelidad: al marcar la cita como completada se otorga
-    # 1 estrella al paciente (solo en la transición -> completed).
-    if appointment.estado == "completed" and estado_previo != "completed":
+    # Programa de fidelidad: se otorga 1 estrella al completar la cita,
+    # exactamente una vez por cita (loyalty_awarded).
+    if appointment.estado == "completed" and not appointment.loyalty_awarded:
         patient = db.query(Patient).filter(
             Patient.id == appointment.patient_id,
             Patient.deleted_at == None,
         ).first()
         if patient:
-            loyalty_service.award_loyalty_points(db, patient)
+            _award_loyalty_once(db, appointment, patient)
 
     logger.info(f"Cita actualizada: {appointment.id}")
     return appointment

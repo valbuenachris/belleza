@@ -273,8 +273,9 @@ REQUIRED_COLUMNS = {
     "patients": [
         "puntos", "sesiones_gratis", "wallet_pass_id", "wallet_auth_token",
         "wallet_updated_at", "google_wallet_object_id", "google_wallet_class_id",
-        "google_wallet_updated_at",
+        "google_wallet_updated_at", "wallet_share_token", "wallet_share_expires_at",
     ],
+    "appointments": ["loyalty_awarded"],
 }
 
 engine = create_engine(settings.DATABASE_URL)

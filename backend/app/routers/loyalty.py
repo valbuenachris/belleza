@@ -20,6 +20,7 @@ from ..models.patient import Patient
 from ..models.tenant import Tenant
 from ..models.user import User
 from ..config import settings
+from ..schemas.wallet_share import WalletShareLinkResponse
 from ..services import loyalty_service
 from ..services import google_wallet_service
 
@@ -198,6 +199,38 @@ def get_google_wallet_save_link(
 
 
 # ============================================================
+# POST /api/v1/patients/{id}/wallet-share-link
+# Genera (o renueva) el enlace público para que el CLIENTE instale su
+# tarjeta en su propio teléfono (/tarjeta/{token}).
+# ============================================================
+
+@router.post(
+    "/{patient_id}/wallet-share-link",
+    response_model=WalletShareLinkResponse,
+    summary="Generar enlace público para compartir la tarjeta",
+    description=(
+        "Genera (o renueva si expiró) un token de capacidad del paciente y "
+        "devuelve la URL pública que el personal puede compartir con el "
+        "cliente por WhatsApp/SMS/email para añadir la tarjeta a su Wallet."
+    ),
+)
+def create_wallet_share_link(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    patient = _get_patient_or_404(db, tenant_id, patient_id)
+    token = loyalty_service.ensure_wallet_share_token(db, patient)
+    base = (settings.WALLET_WEB_SERVICE_BASE_URL or "").strip().rstrip("/")
+    return WalletShareLinkResponse(
+        url=f"{base}/tarjeta/{token}",
+        token=token,
+        expires_at=patient.wallet_share_expires_at,
+    )
+
+
+# ============================================================
 # POST /api/v1/patients/{id}/redeem-session
 # Canjea una sesión gratuita (decrementa sesiones_gratis).
 # ============================================================
@@ -210,7 +243,9 @@ def get_google_wallet_save_link(
 def redeem_session(
     patient_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_role(["admin", "manager", "receptionist"])
+    ),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     patient = _get_patient_or_404(db, tenant_id, patient_id)

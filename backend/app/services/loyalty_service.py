@@ -12,7 +12,7 @@ import logging
 import secrets
 import threading
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -191,6 +191,39 @@ def _hex_to_rgb(hex_color: str) -> str:
 
 
 # ============================================================
+# Bloqueo de fila del paciente (anti race conditions)
+# ============================================================
+
+def _lock_patient(db: Session, patient: Patient) -> Patient:
+    """
+    Relee y bloquea la fila del paciente con SELECT ... FOR UPDATE para
+    que la secuencia leer-modificar-escribir de `puntos` y
+    `sesiones_gratis` sea atómica entre peticiones concurrentes.
+
+    - `with_for_update()` evita lost updates y doble-spend (dos escaneos
+      o dos canjes simultáneos del mismo paciente).
+    - `populate_existing()` fuerza a refrescar los atributos ya cargados
+      en la identidad de la sesión (si no, se devolverían valores viejos).
+
+    Raises:
+        ValueError: Si el paciente no existe (o fue eliminado).
+    """
+    locked = (
+        db.query(Patient)
+        .filter(
+            Patient.id == str(patient.id),
+            Patient.deleted_at == None,  # noqa: E711
+        )
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if locked is None:
+        raise ValueError("Paciente no encontrado")
+    return locked
+
+
+# ============================================================
 # Otorgamiento de puntos
 # ============================================================
 
@@ -221,6 +254,10 @@ def award_loyalty_points(
         tenant = db.query(Tenant).filter(Tenant.id == patient.tenant_id).first()
         config = get_loyalty_config(tenant)
     puntos_meta = config["puntos_meta"]
+
+    # Bloquea la fila del paciente (SELECT ... FOR UPDATE) antes de
+    # modificar el saldo: serializa awards concurrentes.
+    patient = _lock_patient(db, patient)
 
     patient.puntos = (patient.puntos or 0) + PUNTOS_POR_CITA
 
@@ -279,7 +316,12 @@ def redeem_free_session(db: Session, patient: Patient) -> dict:
     Raises:
         ValueError: Si el paciente no tiene sesiones gratuitas disponibles
     """
+    # Bloquea la fila del paciente: el chequeo + decremento deben ser
+    # atómicos para que dos canjes concurrentes no consuman la misma sesión.
+    patient = _lock_patient(db, patient)
+
     if (patient.sesiones_gratis or 0) <= 0:
+        db.rollback()  # libera el lock antes de devolver el error
         raise ValueError("El paciente no tiene sesiones gratuitas disponibles")
 
     patient.sesiones_gratis -= 1
@@ -362,6 +404,71 @@ def ensure_wallet_pass(db: Session, patient: Patient) -> str:
             f"(wallet_pass_id={patient.wallet_pass_id})"
         )
     return patient.wallet_pass_id
+
+
+# ============================================================
+# Enlace público de la tarjeta (compartir con el cliente)
+# ============================================================
+
+# TTL del enlace público de la tarjeta. El personal puede regenerarlo
+# simplemente volviendo a pulsar "Compartir Tarjeta".
+WALLET_SHARE_TTL_DAYS = 7
+
+
+def generate_wallet_share_token(db: Session, length: int = 64) -> str:
+    """
+    Genera un token de capacidad CSPRNG y único para el enlace público
+    de la tarjeta (/tarjeta/{token}). Se guarda en wallet_share_token.
+    """
+    while True:
+        token = secrets.token_urlsafe(48)[:length]
+        exists = db.query(Patient.id).filter(Patient.wallet_share_token == token).first()
+        if not exists:
+            return token
+
+
+def ensure_wallet_share_token(
+    db: Session, patient: Patient, ttl_days: int = WALLET_SHARE_TTL_DAYS
+) -> str:
+    """
+    Devuelve el token del enlace público del paciente, generándolo (o
+    renovándolo si expiró) si hace falta. Cada generación establece una
+    nueva expiración de `ttl_days` días.
+    """
+    now = datetime.utcnow()
+    if (
+        not patient.wallet_share_token
+        or patient.wallet_share_expires_at is None
+        or patient.wallet_share_expires_at <= now
+    ):
+        patient.wallet_share_token = generate_wallet_share_token(db)
+        patient.wallet_share_expires_at = now + timedelta(days=ttl_days)
+        db.commit()
+        db.refresh(patient)
+        logger.info(
+            f"[Fidelidad] Paciente {patient.id}: enlace público generado "
+            f"(expira {patient.wallet_share_expires_at} UTC)"
+        )
+    return patient.wallet_share_token
+
+
+def get_patient_by_share_token(db: Session, token: str) -> Optional[Patient]:
+    """
+    Resuelve el paciente a partir del token del enlace público.
+    Devuelve None si el token es vacío, no existe, expiró, fue eliminado
+    o el paciente está inactivo (nunca revela cuál de los casos es).
+    """
+    norm = (token or "").strip()
+    if not norm:
+        return None
+    now = datetime.utcnow()
+    return db.query(Patient).filter(
+        Patient.wallet_share_token == norm,
+        Patient.wallet_share_expires_at != None,  # noqa: E711
+        Patient.wallet_share_expires_at > now,
+        Patient.deleted_at == None,  # noqa: E711
+        Patient.is_active == True,  # noqa: E712
+    ).first()
 
 
 # ============================================================

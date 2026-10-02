@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import String, DateTime, Integer, Text, Numeric, ForeignKey, Index
+from sqlalchemy import String, Boolean, DateTime, Integer, Text, Numeric, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.mysql import CHAR
 
@@ -94,6 +94,20 @@ class Appointment(Base, TenantBaseModel):
         Text,
         nullable=True,
         comment="Notas adicionales de la cita",
+    )
+
+    # ----------------------------------------------------------
+    # Programa de fidelidad
+    # ----------------------------------------------------------
+    loyalty_awarded: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+        comment=(
+            "TRUE si la estrella de fidelidad ya se otorgó por esta cita "
+            "(evita dobles premios al alternar estados)"
+        ),
     )
 
     # ----------------------------------------------------------

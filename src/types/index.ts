@@ -452,4 +452,29 @@ export interface NotificationMarkAllReadResponse {
   unread_count: number;
 }
 
+// ============================================================
+// Tarjeta pública de fidelidad (/tarjeta/{token})
+// ============================================================
+
+export interface PublicWalletInfo {
+  tenant_name: string;
+  tenant_logo_url: string | null;
+  tarjeta_color_hex: string;
+  puntos_actuales: number;
+  puntos_meta: number;
+  premio_fidelidad: string;
+}
+
+export interface PublicGoogleWalletResponse {
+  enabled: boolean;
+  save_url: string | null;
+  message: string | null;
+}
+
+export interface WalletShareLink {
+  url: string;
+  token: string;
+  expires_at: string | null;
+}
+
 export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant';

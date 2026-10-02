@@ -20,7 +20,7 @@ from .config import settings
 from .database import init_db, check_connection, get_connection_info
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
-from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty, assistant, notifications
+from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty, assistant, notifications, public_wallet
 from .utils.rate_limit import limiter
 
 # ============================================================
@@ -173,6 +173,9 @@ app.include_router(loyalty.router, prefix=settings.API_PREFIX)
 app.include_router(loyalty.scan_router, prefix=settings.API_PREFIX)
 app.include_router(assistant.router, prefix=settings.API_PREFIX)
 app.include_router(notifications.router, prefix=settings.API_PREFIX)
+# Tarjeta pública de fidelidad: enlace de capacidad compartido con el
+# cliente (sin JWT). El token es la única clave; rate-limited por IP.
+app.include_router(public_wallet.router, prefix=settings.API_PREFIX)
 # Apple Wallet Web Service: se monta en /v1 (raíz, SIN /api/v1) porque
 # Apple llama a /v1/devices/... /v1/passes/... y /v1/log directamente.
 app.include_router(loyalty.wallet_router)

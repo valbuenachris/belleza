@@ -12,7 +12,7 @@ import {
   UserPlus, Search, Trash2, Mail, Phone, MapPin,
   Calendar, Stethoscope, Users as UsersIcon, Pencil, FileText,
   X, CalendarPlus, Clock, Printer, Plus, ClipboardList, History, Edit3,
-  Star, Wallet, Gift, Smartphone
+  Star, Wallet, Gift, Smartphone, Share2
 } from 'lucide-react';
 
 export default function PatientsPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
@@ -628,6 +628,52 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
     }
   };
 
+  const copyShareLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback para navegadores/contextos sin Clipboard API
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+  };
+
+  const handleShareCard = async () => {
+    setLoyaltyBusy(true);
+    setLoyaltyMsg('');
+    setLoyaltyErr('');
+    try {
+      const res = await api.createWalletShareLink(patient.id);
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'Tarjeta de fidelidad',
+            text: 'Añade tu tarjeta de fidelidad a Apple/Google Wallet:',
+            url: res.url,
+          });
+          setLoyaltyMsg('Enlace compartido.');
+        } catch {
+          // El usuario canceló o el share falló: copiamos al portapapeles.
+          await copyShareLink(res.url);
+          setLoyaltyMsg('Enlace copiado al portapapeles.');
+        }
+      } else {
+        await copyShareLink(res.url);
+        setLoyaltyMsg('Enlace copiado al portapapeles.');
+      }
+    } catch (err) {
+      setLoyaltyErr(
+        err instanceof ApiError ? err.message : 'No se pudo generar el enlace para compartir',
+      );
+    } finally {
+      setLoyaltyBusy(false);
+    }
+  };
+
   const handleRedeem = async () => {
     if (loyalty.sesiones_gratis <= 0) return;
     setLoyaltyBusy(true);
@@ -971,6 +1017,16 @@ function PatientClinicalModal({ patient, onClose, onSchedule, onRefresh }: {
               >
                 <Smartphone size={14} />
                 Añadir a Google Wallet
+              </button>
+              <button
+                type="button"
+                onClick={handleShareCard}
+                disabled={loyaltyBusy}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Comparte un enlace para que el cliente añada la tarjeta a su propio teléfono"
+              >
+                <Share2 size={14} />
+                Compartir Tarjeta
               </button>
               <button
                 type="button"

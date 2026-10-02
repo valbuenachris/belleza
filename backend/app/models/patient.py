@@ -113,6 +113,21 @@ class Patient(Base, TenantBaseModel):
     )
 
     # ----------------------------------------------------------
+    # Enlace público de la tarjeta (compartir con el cliente)
+    # ----------------------------------------------------------
+    wallet_share_token: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        comment="Token de capacidad del enlace público /tarjeta/{token} (CSPRNG)",
+    )
+    wallet_share_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="Expiración del enlace público de la tarjeta (NULL = sin enlace activo)",
+    )
+
+    # ----------------------------------------------------------
     # Google Wallet (LoyaltyClass / LoyaltyObject integration)
     # ----------------------------------------------------------
     google_wallet_object_id: Mapped[Optional[str]] = mapped_column(

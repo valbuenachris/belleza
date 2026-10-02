@@ -20,6 +20,7 @@ import ServicesPage from './pages/ServicesPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentationPage from './pages/DocumentationPage';
 import AssistantPage from './pages/AssistantPage';
+import PublicWalletPage from './pages/PublicWalletPage';
 
 // ============================================================
 // Router interno de la aplicación
@@ -104,6 +105,13 @@ function AppRouter() {
 // Componente App principal con providers
 // ============================================================
 export default function App() {
+  // Ruta pública de la tarjeta de fidelidad (/tarjeta/{token}): se
+  // renderiza FUERA del AuthProvider y del layout autenticado.
+  const match = window.location.pathname.match(/^\/tarjeta\/([^/]+)\/?$/);
+  if (match) {
+    return <PublicWalletPage token={decodeURIComponent(match[1])} />;
+  }
+
   return (
     <AuthProvider>
       <AppRouter />

@@ -43,6 +43,9 @@ import {
   NotificationsResponse,
   UnreadNotificationsCountResponse,
   NotificationMarkAllReadResponse,
+  PublicWalletInfo,
+  PublicGoogleWalletResponse,
+  WalletShareLink,
 } from '../types';
 
 // ============================================================
@@ -666,6 +669,10 @@ export const api = {
     return request<GoogleWalletSaveData>(`/patients/${patientId}/google-wallet`);
   },
 
+  async createWalletShareLink(patientId: string): Promise<WalletShareLink> {
+    return request<WalletShareLink>(`/patients/${patientId}/wallet-share-link`, { method: 'POST' });
+  },
+
   async redeemSession(patientId: string): Promise<RedeemSessionResult> {
     return request<RedeemSessionResult>(`/patients/${patientId}/redeem-session`, { method: 'POST' });
   },
@@ -683,6 +690,41 @@ export const api = {
     return request<ScanLoyaltyResult>(`/loyalty/scan/${encodeURIComponent(walletPassId)}/redeem`, {
       method: 'POST',
     });
+  },
+
+  // ----------------------------------------------------------
+  // Tarjeta pública de fidelidad (SIN autenticación)
+  // El token de la URL es la única credencial: estas llamadas NUNCA
+  // adjuntan el JWT (auth: false).
+  // ----------------------------------------------------------
+  async getPublicWalletInfo(token: string): Promise<PublicWalletInfo> {
+    return request<PublicWalletInfo>(`/public/wallet/${encodeURIComponent(token)}`, {
+      auth: false,
+    });
+  },
+
+  async downloadPublicPkpass(token: string): Promise<void> {
+    // fetch directo SIN cabecera Authorization (endpoint público).
+    const res = await fetch(`${API_BASE}/public/wallet/${encodeURIComponent(token)}/pkpass`, {
+      method: 'GET',
+    });
+    if (!res.ok) throw await toApiError(res);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tarjeta-fidelidad.pkpass';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  async getPublicGoogleWalletLink(token: string): Promise<PublicGoogleWalletResponse> {
+    return request<PublicGoogleWalletResponse>(
+      `/public/wallet/${encodeURIComponent(token)}/google`,
+      { auth: false },
+    );
   },
 
   // ----------------------------------------------------------

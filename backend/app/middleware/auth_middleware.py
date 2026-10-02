@@ -182,4 +182,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path == "/v1/log" or path.startswith("/v1/devices/") or path.startswith("/v1/passes/"):
             return True
 
+        # Tarjeta pública de fidelidad: el cliente entra SIN JWT; el token
+        # de capacidad de la URL es la única credencial.
+        if path.startswith("/api/v1/public/wallet/"):
+            return True
+
         return False

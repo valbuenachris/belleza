@@ -305,4 +305,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # no desde el JWT, así que estas rutas no requieren tenant en sesión.
         if path == "/v1/log" or path.startswith("/v1/devices/") or path.startswith("/v1/passes/"):
             return True
+        # Tarjeta pública de fidelidad: sin JWT ni tenant en sesión; el
+        # tenant se resuelve desde el token de capacidad.
+        if path.startswith("/api/v1/public/wallet/"):
+            return True
         return False
