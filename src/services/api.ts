@@ -34,6 +34,7 @@ import {
   UserUpdate,
   UsersResponse,
   AssistantStatusResponse,
+  AssistantChatTurn,
   AssistantAskResponse,
   AssistantHistoryResponse,
   AssistantQuery,
@@ -718,10 +719,13 @@ export const api = {
     return request<AssistantStatusResponse>('/assistant/status');
   },
 
-  async assistantAsk(question: string): Promise<AssistantAskResponse> {
+  async assistantAsk(
+    question: string,
+    history: AssistantChatTurn[] = [],
+  ): Promise<AssistantAskResponse> {
     return request<AssistantAskResponse>('/assistant/ask', {
       method: 'POST',
-      body: { question },
+      body: { question, history },
     });
   },
 

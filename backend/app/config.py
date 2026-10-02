@@ -158,26 +158,35 @@ class Settings(BaseSettings):
     GOOGLE_WALLET_SAVE_BASE_URL: str = "https://pay.google.com/gp/v/save"
 
     # ----------------------------------------------------------
-    # Asistente IA (FreeLLMAPI - apifreellm.com)
+    # Asistente IA (FreeLLMAPI - proxy OpenAI-compatible)
     # ----------------------------------------------------------
     # Asistente de IA para resolver consultas de clientes, dar
     # recomendaciones de servicios y explicar el programa de fidelidad.
-    # Integración con FreeLLMAPI (https://apifreellm.com): endpoint
-    #   POST {FREELLMAPI_BASE_URL}/chat
+    # Contrato que implementa el cliente (assistant_service):
+    #   POST {FREELLMAPI_BASE_URL}/chat/completions
     #   Authorization: Bearer {FREELLMAPI_API_KEY}
-    #   Body: {"message": "pregunta", "model": "opcional"}
-    #   Respuesta: {"success": true, "response": "texto"}
-    # Mientras no haya una API key real, FREELLMAPI_ENABLED=false: los
-    # endpoints responden 400/disabled y el resto de la app opera igual.
+    #   Body: {"messages": [{"role": "...", "content": "..."}], "model": "auto"}
+    #   Respuesta: {"choices": [{"message": {"content": "..."}}], ...}
+    #
+    # Despliegue por defecto: proxy self-hosted accesible por la red
+    # docker `freellmapi_default` (ver backend/.env):
+    #   FREELLMAPI_BASE_URL=http://freellmapi-freellmapi-1:3001/v1
+    # La API pública https://apifreellm.com/api/v1 expone OTRO contrato
+    # (/chat con {"message": ...}) y usa otra key/modelo.
+    #
+    # OJO: docker-compose inyecta el .env raíz como variables de entorno
+    # y estas PISAN a /app/.env (pydantic-settings). Mantén el bloque
+    # FREELLMAPI_* de ambos archivos alineado para evitar 401.
+    # Mientras no haya una API key real, FREELLMAPI_ENABLED=false.
     FREELLMAPI_ENABLED: bool = False
-    # API key de FreeLLMAPI (se obtiene registrándose en apifreellm.com
-    # con una cuenta de Google). Se envía como Bearer token. NUNCA se
-    # registra en logs ni se expone en el frontend.
+    # API key del proxy (se envía como Bearer). NUNCA se registra completa
+    # en logs ni se expone en el frontend.
     FREELLMAPI_API_KEY: str = ""
-    # URL base de la API (incluye el prefijo /api/v1). Overridable para
-    # apuntar a una instancia propia/proxy de FreeLLMAPI.
+    # URL base OpenAI-compatible (incluye el prefijo /v1). El cliente
+    # añade automáticamente "/chat/completions". Overridable por entorno.
     FREELLMAPI_BASE_URL: str = "https://apifreellm.com/api/v1"
-    # Modelo opcional (la API usa su modelo por defecto si se omite).
+    # Modelo a usar. "auto" deja que el proxy self-hosted elija el mejor
+    # disponible; en la API pública el alias OpenAI-compatible es "apifreellm".
     FREELLMAPI_MODEL: str = ""
     # Timeout en segundos de cada llamada al proveedor (evita bloquear
     # el request del chat ante una respuesta lenta de la IA).

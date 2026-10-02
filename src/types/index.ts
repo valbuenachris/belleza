@@ -382,6 +382,11 @@ export interface AssistantQuery {
   updated_at: string | null;
 }
 
+export interface AssistantChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface AssistantAskResponse {
   id: string;
   question: string;

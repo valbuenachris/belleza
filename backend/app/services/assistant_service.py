@@ -4,12 +4,17 @@
 # guarda el historial de consultas (pregunta + respuesta + feedback)
 # y expone operaciones de gestión para administradores.
 #
-# Integración con FreeLLMAPI (https://apifreellm.com):
-#   POST {FREELLMAPI_BASE_URL}/chat          (FREELLMAPI_BASE_URL por
-#                                             defecto: https://apifreellm.com/api/v1)
+# Integración con FreeLLMAPI (proxy self-hosted OpenAI-compatible):
+#   POST {FREELLMAPI_BASE_URL}/chat/completions
 #   Authorization: Bearer {FREELLMAPI_API_KEY}
-#   Body: {"message": "<prompt>", "model": "<opcional>"}
-#   Respuesta 200: {"success": true, "response": "<texto>", ...}
+#   Body: {"messages": [{"role": "...", "content": "..."}], "model": "auto"}
+#   Respuesta 200: chat.completion -> choices[0].message.content
+#
+# NOTA: la API pública https://apifreellm.com/api/v1 expone OTRO contrato
+# (/chat con {"message": ...}) y otra key. Este cliente apunta al proxy
+# self-hosted. OJO con la precedencia: docker-compose inyecta el .env raíz
+# como variables de entorno y PISAN a /app/.env; ambas configs deben
+# permanecer alineadas.
 #
 # REGLAS:
 #   - La API key NUNCA sale del backend (no se registra ni se expone).
@@ -22,14 +27,13 @@
 
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 import httpx
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
 
 from ..config import settings
 from ..models.assistant import AssistantQuery
@@ -80,9 +84,29 @@ def status_info() -> dict:
 # Cliente de FreeLLMAPI
 # ============================================================
 
-def _call_freellmapi(prompt: str) -> str:
+def _mask_key(key: str) -> str:
+    """Representación segura de la API key para logs (nunca completa)."""
+    key = key or ""
+    if not key:
+        return "<vacía>"
+    return f"{key[:6]}…({len(key)} chars)"
+
+
+def _sanitize_provider_text(text: str) -> str:
     """
-    Llama a FreeLLMAPI y devuelve el texto de la respuesta.
+    Recorta y redacta la API key si el proveedor la devuelve en el cuerpo
+    del error (p. ej. OpenAI: "Incorrect API key provided: sk-...").
+    """
+    key = (settings.FREELLMAPI_API_KEY or "").strip()
+    if key and key in text:
+        text = text.replace(key, "[REDACTED]")
+    return text[:300]
+
+
+def _call_freellmapi(messages: List[Dict[str, str]]) -> str:
+    """
+    Llama a FreeLLMAPI con un array de mensajes estilo OpenAI
+    (system + historial + pregunta) y devuelve el texto de la respuesta.
 
     Raises:
         ValueError: Con un mensaje seguro y accionable para el usuario.
@@ -94,10 +118,23 @@ def _call_freellmapi(prompt: str) -> str:
         )
 
     url = f"{settings.FREELLMAPI_BASE_URL.rstrip('/')}/chat/completions"
+    model = settings.FREELLMAPI_MODEL or "auto"
+    api_key = settings.FREELLMAPI_API_KEY or ""
     body = {
-        "messages": [{"role": "user", "content": prompt}],
-        "model": settings.FREELLMAPI_MODEL or "auto"
+        "messages": messages,
+        "model": model,
     }
+
+    # Diagnóstico seguro (sin exponer la key completa): permite detectar
+    # de un vistazo a qué servicio se está llamando con qué credencial.
+    logger.info(
+        "[Assistant] POST %s (model=%s, messages=%d, key=%s, timeout=%ss)",
+        url,
+        model,
+        len(messages),
+        _mask_key(api_key),
+        settings.FREELLMAPI_TIMEOUT,
+    )
 
     started = time.monotonic()
     try:
@@ -110,7 +147,7 @@ def _call_freellmapi(prompt: str) -> str:
                 "User-Agent": "spa-management-backend/1.0",
             },
         ) as client:
-            logger.info(f"[DEBUG] Sending body: {body}"); response = client.post(url, json=body)
+            response = client.post(url, json=body)
         duration_ms = int((time.monotonic() - started) * 1000)
     except httpx.TimeoutException:
         logger.error(
@@ -130,23 +167,27 @@ def _call_freellmapi(prompt: str) -> str:
     # ----------------------------------------------------------
     if response.status_code == 401:
         logger.error(
-            "[Assistant] FreeLLMAPI rechazó la API key (401); "
-            "revisa FREELLMAPI_API_KEY"
+            "[Assistant] FreeLLMAPI rechazó la API key (401) en %s "
+            "(model=%s, key=%s): %s",
+            url,
+            model,
+            _mask_key(api_key),
+            _sanitize_provider_text(response.text or "sin detalle"),
         )
         raise ValueError(
             "La configuración del asistente IA es inválida "
             "(API key rechazada). Contacta al administrador."
         )
     if response.status_code == 429:
-        logger.warning("[Assistant] FreeLLMAPI rate-limit (429)")
+        logger.warning("[Assistant] FreeLLMAPI rate-limit (429) en %s", url)
         raise ValueError(
             "El asistente IA alcanzó su límite de uso; "
             "espera unos segundos e inténtalo de nuevo."
         )
     if response.status_code != 200:
-        body_preview = response.text[:200] if response.text else "sin detalle"
+        body_preview = _sanitize_provider_text(response.text or "sin detalle")
         logger.error(
-            f"[Assistant] FreeLLMAPI error {response.status_code}: {body_preview}"
+            f"[Assistant] FreeLLMAPI error {response.status_code} en {url}: {body_preview}"
         )
         raise ValueError(
             "El asistente IA no está disponible en este momento; "
@@ -167,14 +208,19 @@ def _call_freellmapi(prompt: str) -> str:
     else:
         answer = ""
 
-    success = bool(data.get("success")) if isinstance(data, dict) else False
+    # El proxy OpenAI-compatible no devuelve "success": se considera
+    # exitoso si se ha podido extraer texto de choices.
+    success = bool(data.get("success", bool(answer))) if isinstance(data, dict) else False
 
     logger.info(
         f"[Assistant] FreeLLMAPI OK en {duration_ms}ms "
         f"(success={success}, chars={len(answer)})"
     )
     if not answer:
-        logger.warning(f"[Assistant] FreeLLMAPI respondió sin texto: {str(data)[:200]}")
+        logger.warning(
+            f"[Assistant] FreeLLMAPI respondió sin texto: "
+            f"{_sanitize_provider_text(str(data))}"
+        )
         raise ValueError("El asistente IA no generó una respuesta; inténtalo de nuevo.")
 
     return answer
@@ -189,12 +235,20 @@ def _exc_summary(exc: Exception) -> str:
 # Prompt con contexto del tenant
 # ============================================================
 
-def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str, servicios_lista: str, business_context: str) -> str:
+def _build_system_prompt(
+    tenant: Optional[Tenant],
+    user: Optional[User],
+    servicios_lista: str,
+    business_context: str,
+) -> str:
     """
-    Construye el prompt del sistema con el contexto del SPA:
-    el asistente actúa como experto de recepción/fidelidad del negocio
-    (servicios, recomendaciones y programa de fidelidad) y responde
-    SIEMPRE en español, de forma amable y concisa.
+    Construye el SYSTEM prompt del asistente con el contexto dinámico
+    del SPA (RAG): resumen ejecutivo del negocio, servicios activos y
+    configuración de fidelidad del tenant.
+
+    La pregunta del usuario NO se concatena aquí: se envía como mensaje
+    independiente en el array `messages` para conservar el historial de
+    la conversación (preguntas de seguimiento).
     """
     tenant_name = tenant.nombre if tenant else "el SPA"
     user_rol = user.rol if user else "usuario"
@@ -203,31 +257,35 @@ def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str,
     if tenant:
         meta = tenant.puntos_meta or 0
         premio = tenant.premio_fidelidad or ""
-    servicios = servicios_lista if servicios_lista else ""
+    servicios = servicios_lista or "No hay datos de servicio disponibles"
+
     return (
-        "Eres un Asistente Experto en Gestión y Crecimiento de SPAs. Tu usuario es el DUEÑO o ADMINISTRADOR del negocio. "
-        "Tu objetivo es ayudar a tomar decisiones, reactivar clientes y optimizar la operación. "
-        "Responde SIEMPRE en español, de forma profesional, directa y orientada a la acción. "
-        "No inventes datos. Usa EXCLUSIVAMENTE la información del RESUMEN EJECUTIVO del negocio que se te proporciona a continuación "
-        "para responder preguntas sobre ventas, clientes o servicios.\n\n"
+        "Eres un Asistente Experto en Gestión y Crecimiento de SPAs. "
+        "Tu usuario es el DUEÑO o ADMINISTRADOR del negocio. "
+        "Tu objetivo es ayudar a tomar decisiones, reactivar clientes y "
+        "optimizar la operación. Responde SIEMPRE en español, de forma "
+        "profesional, directa y orientada a la acción. No inventes datos: "
+        "usa EXCLUSIVAMENTE la información del RESUMEN EJECUTIVO del "
+        "negocio que se te proporciona a continuación para responder "
+        "preguntas sobre ventas, clientes o servicios.\n\n"
         f"{business_context}\n\n"
-        "Eres el asistente IA de un sistema de gestión para centros de "
-        "estética y relajación (SPAs). Ayudas al personal del SPA a:\n"
-        "  - Resolver consultas sobre clientes y servicios del SPA.\n"
-        "  - Recomendar servicios/tratamientos según las necesidades.\n"
-        "  - Explicar el programa de fidelidad (estrellas, canjes y "
-        "sesiones gratuitas).\n\n"
+        "Además ayudas al personal del SPA a resolver consultas sobre "
+        "clientes y servicios, recomendar servicios/tratamientos y "
+        "explicar el programa de fidelidad (estrellas, canjes y sesiones "
+        "gratuitas).\n\n"
         f"Contexto actual: SPA '{tenant_name}'. El programa de fidelidad "
         f"otorga {meta} estrellas por cada sesión y, al alcanzar la meta, "
         f"se premia con: '{premio or 'una sesión gratuita'}'. El rol del "
-        "usuario que pregunta es: " + user_rol + ".\n\n"
-        "Información actual del servicio: " + (servicios if servicios else "No hay datos de servicio disponibles") + "\n\n"
+        f"usuario que pregunta es: {user_rol}.\n\n"
+        f"Información actual de los servicios: {servicios}\n\n"
         "Reglas de respuesta:\n"
         "  - Responde SIEMPRE en español, de forma amable, clara y concisa.\n"
-        "  - Si no conoces un dato específico, indícalo y sugiere consultar"
-        " el sistema o al administrador.\n"
-        "  - No inventes precios ni datos de clientes.\n\n"
-        f"Pregunta del usuario: {question}"
+        "  - Usa el historial de la conversación para resolver preguntas "
+        "de seguimiento (por ejemplo, a qué paciente o servicio se "
+        "refería una respuesta anterior).\n"
+        "  - Si no conoces un dato específico, indícalo y sugiere "
+        "consultar el sistema o al administrador.\n"
+        "  - No inventes precios ni datos de clientes."
     )
 
 
@@ -235,10 +293,21 @@ def _build_prompt(tenant: Optional[Tenant], user: Optional[User], question: str,
 # Operaciones principales
 # ============================================================
 
-def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dict:
+def ask_assistant(
+    db: Session,
+    tenant_id: str,
+    user: User,
+    question: str,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> dict:
     """
     Genera la respuesta de la IA a una pregunta y la guarda en el
     historial (assistant_queries) asociada al tenant y al usuario.
+
+    Args:
+        history: conversación previa opcional (lista de mensajes
+            {"role": "user"|"assistant", "content": "..."}) que se envía
+            a la IA para resolver preguntas de seguimiento.
 
     Raises:
         ValueError: Si no está habilitado o la pregunta es inválida.
@@ -341,9 +410,35 @@ def ask_assistant(db: Session, tenant_id: str, user: User, question: str) -> dic
         logger.warning(f"[Assistant] Error al obtener resumen ejecutivo: {e}")
         business_context = "\n## 📊 RESUMEN EJECUTIVO: No se pudieron cargar los datos de negocio en este momento."
 
+    # System prompt con el contexto dinámico (RAG) del negocio.
+    system_prompt = _build_system_prompt(
+        tenant, user, servicios_lista, business_context
+    )
+
+    # Construir el array estilo OpenAI: system + historial + pregunta.
+    # Solo se aceptan mensajes con role user/assistant y contenido no
+    # vacío; se limita a los últimos 10 para ahorrar tokens.
+    valid_history: List[Dict[str, str]] = []
+    for msg in history or []:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        content = msg.get("content")
+        if (
+            role in ("user", "assistant")
+            and isinstance(content, str)
+            and content.strip()
+        ):
+            valid_history.append({"role": role, "content": content})
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        *valid_history[-10:],
+        {"role": "user", "content": question},
+    ]
+
     # Generate response with FreeLLMAPI (may raise ValueError).
-    prompt = _build_prompt(tenant, user, question, servicios_lista, business_context)
-    ai_response = _call_freellmapi(prompt)
+    ai_response = _call_freellmapi(messages)
 
     # Persistencia SOLO si la IA respondió correctamente.
     try:
@@ -480,7 +575,7 @@ def set_feedback(db: Session, query: AssistantQuery, is_understood: bool) -> Ass
     Actualiza is_understood (True = útil, False = no útil).
     """
     query.is_understood = bool(is_understood)
-    query.updated_at = datetime.utcnow()
+    query.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(query)
     logger.info(

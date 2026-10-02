@@ -91,7 +91,9 @@ def ask_assistant(
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     try:
-        return assistant_service.ask_assistant(db, tenant_id, current_user, body.question)
+        return assistant_service.ask_assistant(
+            db, tenant_id, current_user, body.question, body.history
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

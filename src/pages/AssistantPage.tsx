@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, ApiError } from '../services/api';
 import {
+  AssistantChatTurn,
   AssistantQuery,
   AssistantStatusResponse,
   AssistantStatsResponse,
@@ -63,6 +64,12 @@ const SUGGESTIONS = [
   '¿Cuántas estrellas se necesitan para una sesión gratis?',
 ];
 
+// Salvaguarda de tokens: máximo de turnos que se envían como contexto a
+// la IA (el backend además recorta a los últimos 10 mensajes válidos).
+const MAX_HISTORY_SENT = 15;
+// Tope de turnos retenidos en memoria para el contexto de la conversación.
+const MAX_HISTORY_STATE = 50;
+
 // ============================================================
 // Componente principal
 // ============================================================
@@ -80,6 +87,9 @@ export default function AssistantPage() {
   // Estado del Chat
   // ----------------------------------------------------------
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Contexto de la conversación (turnos user/assistant) que se envía a la
+  // IA junto con la nueva pregunta para resolver preguntas de seguimiento.
+  const [history, setHistory] = useState<AssistantChatTurn[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -128,9 +138,8 @@ export default function AssistantPage() {
   const loadChatHistory = useCallback(async () => {
     try {
       const data = await api.getAssistantHistory({ limit: 50 });
-      const prev = (data.queries || [])
-        .slice()
-        .reverse()
+      const ordered = (data.queries || []).slice().reverse();
+      const prev = ordered
         .map<ChatMessage[]>((q) => [
           { id: `hq-${q.id}-q`, role: 'user' as const, content: q.question, created_at: q.created_at },
           {
@@ -144,6 +153,19 @@ export default function AssistantPage() {
         ])
         .flat();
       setMessages((current) => (current.length ? current : prev));
+
+      // Sembrar también el contexto que se enviará a la IA, omitiendo las
+      // consultas sin respuesta para no inyectar ruido en la conversación.
+      const prevHistory: AssistantChatTurn[] = [];
+      ordered.forEach((q) => {
+        prevHistory.push({ role: 'user', content: q.question });
+        if (q.response && q.response.trim()) {
+          prevHistory.push({ role: 'assistant', content: q.response });
+        }
+      });
+      setHistory((current) =>
+        current.length ? current : prevHistory.slice(-MAX_HISTORY_STATE),
+      );
     } catch (err) {
       // Error no bloqueante: el chat sigue funcionando sin historial
       setChatError(err instanceof ApiError ? err.message : 'No se pudo cargar el historial del chat');
@@ -210,10 +232,24 @@ export default function AssistantPage() {
     const pendingMsg: ChatMessage = { id: pendingId, role: 'assistant', content: '', pending: true };
 
     setMessages((prev) => [...prev, userMsg, pendingMsg]);
+
+    // Contexto para esta petición: solo los turnos PREVIOS, recortados
+    // como salvaguarda de tokens. El backend añade la pregunta actual como
+    // último mensaje del prompt, por lo que incluirla aquí la duplicaría.
+    const contextHistory = history.slice(-MAX_HISTORY_SENT);
+
+    // El estado sí incorpora ya el turno del usuario para los siguientes
+    // mensajes de la conversación.
+    const nextHistory: AssistantChatTurn[] = [
+      ...history,
+      { role: 'user', content: question },
+    ];
+    setHistory(nextHistory.slice(-MAX_HISTORY_STATE));
+
     setSending(true);
 
     try {
-      const res = await api.assistantAsk(question);
+      const res = await api.assistantAsk(question, contextHistory);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === pendingId
@@ -227,6 +263,10 @@ export default function AssistantPage() {
               }
             : m,
         ),
+      );
+      // La respuesta pasa a formar parte del contexto para seguimientos.
+      setHistory((prev) =>
+        [...prev, { role: 'assistant' as const, content: res.response }].slice(-MAX_HISTORY_STATE),
       );
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Error al conectar con el asistente';
