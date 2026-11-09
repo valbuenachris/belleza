@@ -62,7 +62,9 @@ export default function PublicWalletPage({ token }: PublicWalletPageProps) {
       if (res.enabled && res.save_url) {
         window.open(res.save_url, '_blank', 'noopener,noreferrer');
       } else {
-        setMessage(res.message || 'Google Wallet no está disponible por ahora.');
+        setMessage(
+          'La integración con Google Wallet aún no está configurada por el administrador.',
+        );
       }
     } catch {
       setMessage('No se pudo generar el enlace de Google Wallet. Inténtalo de nuevo.');

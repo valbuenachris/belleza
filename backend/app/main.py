@@ -3,6 +3,7 @@
 # Sistema de Gestión Integral para SPAs - Arquitectura Multitenant
 # ============================================================
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -20,7 +21,7 @@ from .config import settings
 from .database import init_db, check_connection, get_connection_info
 from .middleware.tenant_middleware import TenantMiddleware
 from .middleware.auth_middleware import AuthMiddleware
-from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty, assistant, notifications, public_wallet
+from .routers import auth, tenants, patients, appointments, services, users, clinical_records, loyalty, assistant, notifications, public_wallet, whatsapp, whatsapp_webhook
 from .utils.rate_limit import limiter
 
 # ============================================================
@@ -70,7 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logger.info(f"🐳 Docker: {settings.is_docker}")
     logger.info(f"🗄️ Base de datos: {get_connection_info()}")
     
-    # Inicializar base de datos con reintentos
+# Inicializar base de datos con reintentos
     # (importante en Docker donde MySQL puede tardar en estar listo)
     try:
         init_db(max_retries=30, retry_delay=2)
@@ -79,7 +80,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.error(f"❌ Error al inicializar base de datos: {e}")
         # No fallar completamente - el healthcheck detectará el problema
         logger.warning("La aplicación continuará iniciando, pero la DB no está disponible")
-    
+
+    # Registrar webhooks de WhatsApp en Evolution para instancias abiertas
+    try:
+        await _register_whatsapp_webhooks()
+    except Exception as e:
+        logger.warning(f"No se pudieron registrar webhooks de WhatsApp en startup: {e}")
+
+    # Loop de recordatorios de citas por WhatsApp (24h antes)
+    reminder_task = None
+    try:
+        from .services.whatsapp_reminder_service import reminder_loop
+
+        reminder_task = asyncio.create_task(reminder_loop())
+        logger.info("Loop de recordatorios de citas por WhatsApp iniciado")
+    except Exception as e:
+        logger.warning(f"No se pudo iniciar el loop de recordatorios: {e}")
+
     logger.info("✅ Aplicación lista para recibir requests")
     
     yield
@@ -87,6 +104,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # ----------------------------------------------------------
     # SHUTDOWN
     # ----------------------------------------------------------
+    if reminder_task:
+        reminder_task.cancel()
     logger.info("🛑 Cerrando aplicación...")
     logger.info("✅ Aplicación cerrada correctamente")
 
@@ -176,9 +195,15 @@ app.include_router(notifications.router, prefix=settings.API_PREFIX)
 # Tarjeta pública de fidelidad: enlace de capacidad compartido con el
 # cliente (sin JWT). El token es la única clave; rate-limited por IP.
 app.include_router(public_wallet.router, prefix=settings.API_PREFIX)
+# WhatsApp / Evolution API: endpoints de administración protegidos.
+app.include_router(whatsapp.router, prefix=settings.API_PREFIX)
+# WhatsApp webhook público (sin JWT, validado por token).
+app.include_router(whatsapp_webhook.router)
 # Apple Wallet Web Service: se monta en /v1 (raíz, SIN /api/v1) porque
 # Apple llama a /v1/devices/... /v1/passes/... y /v1/log directamente.
 app.include_router(loyalty.wallet_router)
+# WhatsApp webhook público (sin JWT, validado por token).
+# No tiene prefix /api/v1 porque Evolution llama directo a /webhooks/evolution/...
 
 
 # ============================================================
@@ -293,6 +318,42 @@ async def health_check():
             "version": settings.APP_VERSION,
         },
     )
+
+
+async def _register_whatsapp_webhooks():
+    """Registra los webhooks de WhatsApp en Evolution para instancias abiertas."""
+    try:
+        from .database import SessionLocal
+        from .models.whatsapp import WhatsAppSettings
+        from .services.whatsapp_service import evolution_client
+
+        public_url = settings.PUBLIC_API_URL.strip().rstrip("/") if settings.PUBLIC_API_URL else ""
+        webhook_token = settings.EVOLUTION_WEBHOOK_TOKEN.strip() if settings.EVOLUTION_WEBHOOK_TOKEN else ""
+        if not public_url or not webhook_token:
+            logger.warning("PUBLIC_API_URL o EVOLUTION_WEBHOOK_TOKEN no configurados; webhooks no registrados.")
+            return
+
+        db = SessionLocal()
+        try:
+            instances = db.query(WhatsAppSettings).filter(
+                WhatsAppSettings.status == "open",
+                WhatsAppSettings.deleted_at == None,
+                WhatsAppSettings.instance_name != None,
+            ).all()
+
+            for inst in instances:
+                webhook_url = f"{public_url}/webhooks/evolution/{inst.instance_name}?token={webhook_token}"
+                try:
+                    await evolution_client.set_webhook(inst.instance_name, webhook_url)
+                    inst.webhook_registered = True
+                    logger.info(f"Webhook registrado al iniciar para {inst.instance_name}")
+                except ValueError as e:
+                    logger.warning(f"No se pudo registrar webhook para {inst.instance_name}: {e}")
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Error registrando webhooks WhatsApp al iniciar: {e}")
 
 
 # ============================================================

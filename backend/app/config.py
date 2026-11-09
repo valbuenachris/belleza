@@ -130,9 +130,12 @@ class Settings(BaseSettings):
     # API" -> "Issuer account". Es un número; NUNCA se debe inventar.
     GOOGLE_WALLET_ISSUER_ID: str = ""
     # Id de la clase de fidelidad. Si se deja vacío, se genera automáticamente
-    # por tenant (recomendado): "{issuer}.loyalty-class-{tenant_id}".
+    # por tenant (recomendado): "{issuer}.lc-{8 hex del tenant}" (<= 64 chars,
+    # límite estricto de Google Wallet).
     GOOGLE_WALLET_CLASS_ID: str = ""
     # Cuenta de servicio de Google Cloud (email del .json de credenciales).
+    # Puede dejarse vacío: se usa el `client_email` del .json apuntado por
+    # GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_WALLET_SERVICE_ACCOUNT_FILE.
     GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL: str = ""
     # Clave privada RSA de la cuenta de servicio. Se acepta el PEM tal cual
     # (con saltos de línea) o codificado en base64 (del .json de credenciales).
@@ -195,6 +198,25 @@ class Settings(BaseSettings):
     # Timeout en segundos de cada llamada al proveedor (evita bloquear
     # el request del chat ante una respuesta lenta de la IA).
     FREELLMAPI_TIMEOUT: int = 60
+
+    # ----------------------------------------------------------
+    # WhatsApp / Evolution API
+    # ----------------------------------------------------------
+    # URL base del servidor Evolution API (ej. https://evolution.tienderu.com).
+    # Es la MISMA plataforma que usan otros proyectos del ecosistema; cada
+    # tenant crea SU instancia desde el panel y la key nunca se expone.
+    EVOLUTION_API_URL: str = ""
+    # API key global de Evolution (nunca se expone en el frontend).
+    EVOLUTION_API_KEY: str = ""
+    # Token del webhook del bot: Evolution lo envía en el query string
+    # como ?token=. Se valida con comparación timing-safe.
+    # Generar con: openssl rand -hex 32
+    EVOLUTION_WEBHOOK_TOKEN: str = ""
+    # Switch global del asistente de WhatsApp (false = deshabilitado).
+    WHATSAPP_BOT_ENABLED: bool = False
+    # URL pública del backend (para registrar webhooks en Evolution).
+    # Ej: https://estetica.tienderu.com
+    PUBLIC_API_URL: str = ""
 
     # ----------------------------------------------------------
     # Docker

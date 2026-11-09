@@ -386,7 +386,7 @@ def google_wallet_status(
         "configured": configured,
         "origin": google_wallet_service.origin(),
         "issuer_id": settings.GOOGLE_WALLET_ISSUER_ID or None,
-        "service_account_email": settings.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL or None,
+        "service_account_email": google_wallet_service.service_account_email(),
         "class_id_override": settings.GOOGLE_WALLET_CLASS_ID or None,
         "class_id_mode": (
             "manual" if settings.GOOGLE_WALLET_CLASS_ID else "auto-per-tenant"

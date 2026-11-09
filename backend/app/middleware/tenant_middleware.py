@@ -309,4 +309,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # tenant se resuelve desde el token de capacidad.
         if path.startswith("/api/v1/public/wallet/"):
             return True
+        # Webhooks de WhatsApp/Evolution: sin JWT ni tenant en sesión;
+        # Evolution autentica con su propio token (?token=) y el tenant se
+        # resuelve desde el nombre de la instancia en el router.
+        if path.startswith("/webhooks/"):
+            return True
         return False

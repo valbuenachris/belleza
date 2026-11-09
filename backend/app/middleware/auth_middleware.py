@@ -187,4 +187,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/public/wallet/"):
             return True
 
+        # Webhooks de WhatsApp/Evolution: Evolution autentica con su propio
+        # token (?token=), nunca con el JWT del SPA; se valida en el router.
+        if path.startswith("/webhooks/"):
+            return True
+
         return False

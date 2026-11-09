@@ -10,6 +10,7 @@ from .clinical_record import ClinicalRecord
 from .pass_registration import PassRegistration
 from .assistant import AssistantQuery
 from .notification import Notification
+from .whatsapp import WhatsAppSettings, WhatsAppConversation, WhatsAppMessage
 
 __all__ = [
     "Base",
@@ -23,4 +24,7 @@ __all__ = [
     "PassRegistration",
     "AssistantQuery",
     "Notification",
+    "WhatsAppSettings",
+    "WhatsAppConversation",
+    "WhatsAppMessage",
 ]

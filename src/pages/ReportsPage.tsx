@@ -7,6 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
 import { FinancialReport } from '../types';
+import { getTenantTimezone, tzParts, pad2 } from '../utils/dateTime';
 import {
   Wallet, CalendarCheck, CalendarX2, Receipt, UserPlus,
   FileDown, Printer, TrendingUp, Users, Award
@@ -24,31 +25,34 @@ const RANGES: { key: RangeKey; label: string }[] = [
   { key: 'year', label: 'Año Actual' },
 ];
 
-function dstr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+// Último día de un mes (m = 1..12)
+function lastDayOfMonth(y: number, m: number): number {
+  return new Date(y, m, 0).getDate();
 }
 
-function rangeToDates(key: RangeKey): { desde: string; hasta: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const firstOf = (yy: number, mm: number) => new Date(yy, mm, 1);
+// Rango en la zona horaria del tenant y que cubre el PERIODO COMPLETO
+// (no se corta en "hoy"): así "Este Mes" incluye las citas futuras del resto
+// del mes, incluidas las canceladas. Las fechas se calculan con la zona del
+// tenant (el backend guarda date_time naive en hora local del negocio).
+function rangeToDates(key: RangeKey, tz: string): { desde: string; hasta: string } {
+  const { y, m } = tzParts(new Date(), tz);
+  const m2 = (mm: number) => String(mm).padStart(2, '0');
 
   switch (key) {
     case 'month':
-      return { desde: dstr(firstOf(y, m)), hasta: dstr(now) };
+      return { desde: `${y}-${m2(m)}-01`, hasta: `${y}-${m2(m)}-${m2(lastDayOfMonth(y, m))}` };
     case 'prevMonth': {
-      const d0 = firstOf(y, m - 1);
-      const last = new Date(y, m, 0);
-      return { desde: dstr(d0), hasta: dstr(last) };
+      const pm = m - 1 <= 0 ? 12 : m - 1;
+      const py = m - 1 <= 0 ? y - 1 : y;
+      return { desde: `${py}-${m2(pm)}-01`, hasta: `${py}-${m2(pm)}-${m2(lastDayOfMonth(py, pm))}` };
     }
-    case 'last3':
-      return { desde: dstr(firstOf(y, m - 2)), hasta: dstr(now) };
+    case 'last3': {
+      const sm = m - 2 <= 0 ? m - 2 + 12 : m - 2;
+      const sy = m - 2 <= 0 ? y - 1 : y;
+      return { desde: `${sy}-${m2(sm)}-01`, hasta: `${y}-${m2(m)}-${m2(lastDayOfMonth(y, m))}` };
+    }
     case 'year':
-      return { desde: `${y}-01-01`, hasta: dstr(now) };
+      return { desde: `${y}-01-01`, hasta: `${y}-12-31` };
   }
 }
 
@@ -57,6 +61,7 @@ function rangeToDates(key: RangeKey): { desde: string; hasta: string } {
 // ============================================================
 export default function ReportsPage() {
   const { tenant } = useAuth();
+  const tz = getTenantTimezone(tenant);
   const [range, setRange] = useState<RangeKey>('month');
   const [report, setReport] = useState<FinancialReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,11 +75,11 @@ export default function ReportsPage() {
   });
   const fmtMoney = (v: number) => currencyFormatter.format(v);
 
-  const loadReport = useCallback(async (key: RangeKey) => {
+  const loadReport = useCallback(async (key: RangeKey, timezone: string) => {
     setLoading(true);
     setError('');
     try {
-      const { desde, hasta } = rangeToDates(key);
+      const { desde, hasta } = rangeToDates(key, timezone);
       const data = await api.getFinancialReport({ desde, hasta });
       setReport(data);
     } catch (err) {
@@ -85,8 +90,8 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    loadReport(range);
-  }, [range, loadReport]);
+    loadReport(range, tz);
+  }, [range, tz, loadReport]);
 
   // ----------------------------------------------------------
   // Exportar CSV

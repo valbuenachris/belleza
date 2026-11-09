@@ -562,13 +562,29 @@ def get_financial_report(
     canceladas_count = sum(1 for a in citas if a.estado == "cancelled")
     ticket_promedio = ingresos / len(efectivas) if efectivas else 0.0
 
+    # Pacientes nuevos: created_at se guarda en UTC (datetime.utcnow), pero
+    # el rango del reporte viene en hora local del tenant. Se convierten los
+    # límites local -> UTC para que el conteo coincida con el periodo real.
+    from ..models.tenant import Tenant as TenantModel
+
+    tenant_row = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
+    tz_name = (tenant_row.timezone if tenant_row else None) or "America/Bogota"
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name)
+        start_utc = start.replace(tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        end_utc = end.replace(tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    except Exception:
+        start_utc, end_utc = start, end
+
     pacientes_nuevos = (
         db.query(func.count(Patient.id))
         .filter(
             Patient.tenant_id == tenant_id,
             Patient.deleted_at == None,
-            Patient.created_at >= start,
-            Patient.created_at <= end,
+            Patient.created_at >= start_utc,
+            Patient.created_at <= end_utc,
         )
         .scalar()
         or 0

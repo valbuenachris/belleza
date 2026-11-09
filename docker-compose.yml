@@ -26,6 +26,12 @@ services:
       - GOOGLE_WALLET_ISSUER_ID=${GOOGLE_WALLET_ISSUER_ID}
       - GOOGLE_WALLET_CLASS_ID=${GOOGLE_WALLET_CLASS_ID}
       - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      # WhatsApp / Evolution API
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      - WHATSAPP_BOT_ENABLED=${WHATSAPP_BOT_ENABLED:-false}
+      - PUBLIC_API_URL=${PUBLIC_API_URL}
     # NOTA: Redis está desacoplado del arranque (el backend aún no lo usa).
     # Si se reactiva, restaurar depends_on con condition: service_healthy.
     volumes:

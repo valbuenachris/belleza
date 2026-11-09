@@ -20,6 +20,7 @@ import ServicesPage from './pages/ServicesPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentationPage from './pages/DocumentationPage';
 import AssistantPage from './pages/AssistantPage';
+import WhatsAppPage from './pages/WhatsAppPage';
 import PublicWalletPage from './pages/PublicWalletPage';
 
 // ============================================================
@@ -67,6 +68,9 @@ function AppRouter() {
     if (currentPage === 'assistant' && !['admin', 'manager'].includes(user?.rol ?? '')) {
       return <DashboardPage onNavigate={setCurrentPage} />;
     }
+    if (currentPage === 'whatsapp' && !['admin', 'manager'].includes(user?.rol ?? '')) {
+      return <DashboardPage onNavigate={setCurrentPage} />;
+    }
 
     switch (currentPage) {
       case 'dashboard':
@@ -87,6 +91,8 @@ function AppRouter() {
         return <SettingsPage />;
       case 'assistant':
         return <AssistantPage />;
+      case 'whatsapp':
+        return <WhatsAppPage />;
       case 'docs':
         return <DocumentationPage />;
       default:

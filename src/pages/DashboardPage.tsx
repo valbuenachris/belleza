@@ -12,6 +12,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
 import { TenantStats, Appointment, Page, ScanLoyaltyResult } from '../types';
+import { getTenantTimezone, fmtLongDate } from '../utils/dateTime';
 import {
   Users, Calendar, DollarSign, UserCheck, TrendingUp,
   Clock, Activity, Building2, CheckCircle2, Circle,
@@ -25,6 +26,7 @@ interface DashboardPageProps {
 
 export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const { user, tenant } = useAuth();
+  const tz = getTenantTimezone(tenant);
   const [stats, setStats] = useState<TenantStats | null>(null);
   const [recentAppointments, setRecentAppointments] = useState<Appointment[]>([]);
   const [servicesCount, setServicesCount] = useState(0);
@@ -445,7 +447,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </button>
           <div className="hidden md:flex items-center gap-2 text-sm text-stone-500 bg-white px-4 py-2 rounded-xl border border-stone-200">
             <Clock size={16} />
-            <span>{new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span>{fmtLongDate(new Date(), tz)}</span>
           </div>
         </div>
       </div>

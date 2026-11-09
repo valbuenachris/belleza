@@ -46,6 +46,11 @@ import {
   PublicWalletInfo,
   PublicGoogleWalletResponse,
   WalletShareLink,
+  WhatsAppSettings,
+  WhatsAppConnectResponse,
+  WhatsAppStatusResponse,
+  WhatsAppConversationListResponse,
+  WhatsAppMessageListResponse,
 } from '../types';
 
 // ============================================================
@@ -849,6 +854,69 @@ export const api = {
     return request<NotificationMarkAllReadResponse>('/notifications/read-all', {
       method: 'PUT',
     });
+  },
+
+  // ----------------------------------------------------------
+  // WhatsApp / Evolution API
+  // ----------------------------------------------------------
+  async getWhatsAppSettings(): Promise<WhatsAppSettings> {
+    return request<WhatsAppSettings>('/whatsapp/settings');
+  },
+
+  async updateWhatsAppSettings(data: {
+    agent_enabled?: boolean;
+    agent_name?: string;
+    agent_tone?: string;
+    notifications_enabled?: boolean;
+  }): Promise<WhatsAppSettings> {
+    return request<WhatsAppSettings>('/whatsapp/settings', {
+      method: 'PUT',
+      body: data,
+    });
+  },
+
+  async createWhatsAppInstance(): Promise<WhatsAppConnectResponse> {
+    return request<WhatsAppConnectResponse>('/whatsapp/instance', {
+      method: 'POST',
+    });
+  },
+
+  async connectWhatsApp(): Promise<WhatsAppConnectResponse> {
+    return request<WhatsAppConnectResponse>('/whatsapp/connect', {
+      method: 'POST',
+    });
+  },
+
+  async getWhatsAppStatus(): Promise<WhatsAppStatusResponse> {
+    return request<WhatsAppStatusResponse>('/whatsapp/status');
+  },
+
+  async disconnectWhatsApp(): Promise<{ message: string }> {
+    return request<{ message: string }>('/whatsapp/disconnect', {
+      method: 'POST',
+    });
+  },
+
+  async getWhatsAppConversations(params?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+  }): Promise<WhatsAppConversationListResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 50) });
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.status) query.set('status', params.status);
+    return request<WhatsAppConversationListResponse>(`/whatsapp/conversations?${query.toString()}`);
+  },
+
+  async getWhatsAppMessages(
+    conversationId: string,
+    params?: { limit?: number; offset?: number }
+  ): Promise<WhatsAppMessageListResponse> {
+    const query = new URLSearchParams({ limit: String(params?.limit ?? 50) });
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    return request<WhatsAppMessageListResponse>(
+      `/whatsapp/conversations/${conversationId}/messages?${query.toString()}`
+    );
   },
 };
 

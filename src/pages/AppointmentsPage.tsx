@@ -5,8 +5,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, ApiError } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { Appointment, Patient, Service, User } from '../types';
 import { setScheduleListener } from '../services/scheduleRequest';
+import { getTenantTimezone } from '../utils/dateTime';
 import {
   Calendar, CalendarDays, List, Plus, Clock, DollarSign,
   User as UserIcon, Scissors, AlertCircle, ChevronLeft, ChevronRight, X
@@ -55,11 +57,15 @@ function parseDateKey(key: string): Date {
   return new Date(y, m - 1, d);
 }
 
-function aptTime(a: Appointment): string {
+function aptTime(a: Appointment, _timezone?: string): string {
+  // Las citas se guardan en hora local del SPA (naive, sin Z). NO se convierten
+  // a timezone: se muestra la hora cruda guardada (hora_inicio/time).
   return a.hora_inicio || a.time || (a.date_time ? a.date_time.slice(11, 16) : '--:--');
 }
 
-function aptDateKey(a: Appointment): string | null {
+function aptDateKey(a: Appointment, _timezone?: string): string | null {
+  // Las citas se guardan en hora local del SPA (naive, sin Z). La agrupación
+  // del calendario usa la fecha cruda, sin conversión de zona.
   if (a.date_time) {
     const d = new Date(a.date_time);
     if (!isNaN(d.getTime())) return dateKey(d);
@@ -106,6 +112,8 @@ function getNextActions(estado: string): { key: string; label: string; className
 }
 
 export default function AppointmentsPage() {
+  const { tenant } = useAuth();
+  const tz = getTenantTimezone(tenant);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,14 +235,14 @@ export default function AppointmentsPage() {
   const byDay = useMemo(() => {
     const map: Record<string, Appointment[]> = {};
     for (const a of monthAppointments) {
-      const k = aptDateKey(a);
+      const k = aptDateKey(a, tz);
       if (k) (map[k] = map[k] || []).push(a);
     }
     for (const k of Object.keys(map)) {
-      map[k].sort((x, y) => aptTime(x).localeCompare(aptTime(y)));
+      map[k].sort((x, y) => aptTime(x, tz).localeCompare(aptTime(y, tz)));
     }
     return map;
-  }, [monthAppointments]);
+  }, [monthAppointments, tz]);
 
   const monthCellDates = useMemo(() => buildMonthGrid(calYear, calMonth), [calYear, calMonth]);
 
@@ -371,7 +379,7 @@ export default function AppointmentsPage() {
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
                             <span className="text-sm text-stone-700">
-                              {aptTime(apt)} h
+                              {aptTime(apt, tz)} h
                             </span>
                             <span className="text-xs text-stone-400">{apt.duracion} min</span>
                           </div>
@@ -421,6 +429,7 @@ export default function AppointmentsPage() {
           onNavigate={navigateMonth}
           onGoToday={() => { setCalYear(new Date().getFullYear()); setCalMonth(new Date().getMonth()); }}
           onDayClick={openDay}
+          timezone={tz}
         />
       )}
 
@@ -450,6 +459,7 @@ export default function AppointmentsPage() {
           }}
           statusSaving={statusSaving}
           onStatusChange={(id, estado) => changeStatus(id, estado)}
+          timezone={tz}
         />
       )}
     </div>
@@ -460,7 +470,7 @@ export default function AppointmentsPage() {
 // Vista de Calendario Mensual
 // ============================================================
 
-function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCount, loading, error, onNavigate, onGoToday, onDayClick }: {
+function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCount, loading, error, onNavigate, onGoToday, onDayClick, timezone }: {
   calYear: number;
   calMonth: number;
   byDay: Record<string, Appointment[]>;
@@ -471,6 +481,7 @@ function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCoun
   onNavigate: (delta: number) => void;
   onGoToday: () => void;
   onDayClick: (dayKey: string) => void;
+  timezone: string;
 }) {
   const today = todayStr();
 
@@ -592,11 +603,11 @@ function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCoun
                       <div
                         key={a.id}
                         className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-md bg-stone-50 text-stone-700"
-                        title={`${aptTime(a)}h - ${a.patient} - ${a.service}`}
+                        title={`${aptTime(a, timezone)}h - ${a.patient} - ${a.service}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDots[a.estado] || 'bg-stone-300'}`} />
                         <span className="truncate text-[10px] leading-tight">
-                          <span className="font-semibold">{aptTime(a)}h</span>&nbsp;{a.patient}
+                          <span className="font-semibold">{aptTime(a, timezone)}h</span>&nbsp;{a.patient}
                         </span>
                       </div>
                     ))}
@@ -618,13 +629,14 @@ function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCoun
 // Modal de resumen del día
 // ============================================================
 
-function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSaving, onStatusChange }: {
+function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSaving, onStatusChange, timezone }: {
   dayKey: string;
   appointments: Appointment[];
   onClose: () => void;
   onNewAppointment: () => void;
   statusSaving: Record<string, boolean>;
   onStatusChange: (id: string, estado: string) => void;
+  timezone: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -658,7 +670,7 @@ function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSavin
               {appointments.map((a) => (
                 <div key={a.id} className="flex items-center gap-3 p-3 bg-stone-50 rounded-xl">
                   <div className="flex flex-col items-center justify-center px-2 py-1 bg-white rounded-lg border border-stone-200 min-w-[64px]">
-                    <span className="text-sm font-bold text-stone-800">{aptTime(a)}</span>
+                    <span className="text-sm font-bold text-stone-800">{aptTime(a, timezone)}</span>
                     <span className="text-[10px] text-stone-400">{a.duracion} min</span>
                   </div>
                   <div className="flex-1 min-w-0">

@@ -477,4 +477,62 @@ export interface WalletShareLink {
   expires_at: string | null;
 }
 
-export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant';
+export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant' | 'whatsapp';
+
+// ============================================================
+// WhatsApp / Evolution API
+// ============================================================
+
+export interface WhatsAppSettings {
+  instance_name: string | null;
+  status: string;
+  connected_at: string | null;
+  qr_code: string | null;
+  agent_enabled: boolean;
+  agent_name: string;
+  agent_tone: string;
+  notifications_enabled: boolean;
+  webhook_registered: boolean;
+}
+
+export interface WhatsAppStatusResponse {
+  connected: boolean;
+  state: string | null;
+  instance_name: string | null;
+}
+
+export interface WhatsAppConnectResponse {
+  instance_name: string;
+  state: string | null;
+  qr: string | null;
+}
+
+export interface WhatsAppConversation {
+  id: string;
+  phone: string;
+  push_name: string | null;
+  patient_id: string | null;
+  patient_name: string | null;
+  status: string;
+  last_message_at: string | null;
+  last_message_content: string | null;
+  last_message_role: string | null;
+  created_at: string;
+}
+
+export interface WhatsAppConversationListResponse {
+  conversations: WhatsAppConversation[];
+  total: number;
+}
+
+export interface WhatsAppMessage {
+  id: string;
+  role: string;
+  content: string | null;
+  created_at: string;
+}
+
+export interface WhatsAppMessageListResponse {
+  messages: WhatsAppMessage[];
+  total: number;
+}

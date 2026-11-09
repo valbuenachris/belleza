@@ -27,6 +27,7 @@
 # ============================================================
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -108,18 +109,49 @@ def _load_private_key() -> Optional[str]:
     return None
 
 
+def service_account_email() -> Optional[str]:
+    """
+    Email (claim `iss`) de la cuenta de servicio para el JWT de guardado.
+    Prioridad:
+      1) GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL (explícito), o
+      2) el campo `client_email` del .json apuntado por
+         GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_WALLET_SERVICE_ACCOUNT_FILE.
+
+    El fallback permite configurar SOLO el JSON (vía recomendada).
+    """
+    explicit = (settings.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL or "").strip()
+    if explicit:
+        return explicit
+
+    path = _credentials_file()
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            email = (data.get("client_email") or "").strip()
+            if email:
+                return email
+        except Exception as exc:
+            logger.warning(f"[GWallet] No se pudo leer client_email de {path}: {exc}")
+    return None
+
+
 def is_configured() -> bool:
     """
-    True si hay credenciales suficientes (issuer id + clave privada o
-    archivo de la cuenta de servicio existente). No valida contra Google
-    (eso se detecta al primer request y se registra).
+    True si hay credenciales suficientes: issuer id, material de firma
+    (clave privada inline o archivo .json existente) y email de la cuenta
+    de servicio (explícito o extraído del propio .json). No valida contra
+    Google (eso se detecta al primer request y se registra).
     """
     if not settings.GOOGLE_WALLET_ISSUER_ID:
         return False
-    if _load_private_key():
-        return True
-    path = _credentials_file()
-    return bool(path and os.path.exists(path))
+
+    has_signing_credentials = bool(_load_private_key())
+    if not has_signing_credentials:
+        path = _credentials_file()
+        has_signing_credentials = bool(path and os.path.exists(path))
+
+    return has_signing_credentials and bool(service_account_email())
 
 
 def missing_config_fields() -> List[str]:
@@ -136,6 +168,11 @@ def missing_config_fields() -> List[str]:
             )
         elif not os.path.exists(path):
             missing.append(f"Archivo de credenciales no encontrado: {path}")
+    if not service_account_email():
+        missing.append(
+            "GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL (o client_email en el .json "
+            "de la cuenta de servicio)"
+        )
     return missing
 
 
@@ -216,12 +253,49 @@ def _get_client():
 # Ids (formato oficial: {issuer_id}.{suffix})
 # ============================================================
 
+# Límite estricto de Google Wallet para resource IDs (classId/objectId).
+GOOGLE_WALLET_ID_MAX_LENGTH = 64
+
+
+def _tenant_short_id(tenant_id: str) -> str:
+    """
+    Sufijo corto y estable por tenant: primeros 8 caracteres del UUID
+    (sin guiones). Garantiza que el classId no supere el límite de 64
+    caracteres de Google y sigue siendo único por tenant.
+    """
+    clean = "".join(ch for ch in str(tenant_id or "") if ch.isalnum())
+    if clean:
+        return clean[:8]
+    return hashlib.sha256(str(tenant_id or "").encode("utf-8")).hexdigest()[:8]
+
+
 def class_id(tenant: Tenant) -> str:
-    """Id de la clase de fidelidad (override manual o per-tenant)."""
+    """
+    Id de la clase de fidelidad. Prioridad:
+      1) GOOGLE_WALLET_CLASS_ID (override manual), o
+      2) "{issuer}.lc-{8 hex del tenant}" (<= 64 chars, único por tenant).
+
+    El formato antiguo "{issuer}.loyalty-class-{tenant_id}" superaba los
+    64 caracteres con un issuer real y Google lo rechazaba.
+    """
     override = (settings.GOOGLE_WALLET_CLASS_ID or "").strip()
     if override:
         return override
-    return f"{settings.GOOGLE_WALLET_ISSUER_ID}.loyalty-class-{tenant.id}"
+
+    issuer = (settings.GOOGLE_WALLET_ISSUER_ID or "").strip()
+    suffix = _tenant_short_id(str(tenant.id))
+    cls_id = f"{issuer}.lc-{suffix}"
+    if len(cls_id) > GOOGLE_WALLET_ID_MAX_LENGTH:
+        # Defensa extrema ante un issuer fuera de especificación: recorta
+        # el issuer para no exceder el límite (queda traza en el log).
+        allowed = GOOGLE_WALLET_ID_MAX_LENGTH - len(".lc-") - len(suffix)
+        issuer = issuer[: max(allowed, 1)]
+        cls_id = f"{issuer}.lc-{suffix}"
+        logger.warning(
+            f"[GWallet] classId recortado por límite de {GOOGLE_WALLET_ID_MAX_LENGTH} "
+            f"chars: {cls_id}"
+        )
+    return cls_id
 
 
 def object_id(patient: Patient) -> str:
@@ -630,8 +704,14 @@ def generate_save_url(db: Session, patient: Patient, tenant: Optional[Tenant]) -
     obj_id = object_id(patient)
 
     key = _load_private_key()
+    issuer_email = service_account_email()
+    if not issuer_email:
+        raise RuntimeError(
+            "No se encontró el email de la cuenta de servicio (client_email) "
+            "para firmar el JWT de guardado de Google Wallet"
+        )
     claims = {
-        "iss": settings.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL,
+        "iss": issuer_email,
         "aud": "google",
         "typ": "savetowallet",
         "iat": int(time.time()),
