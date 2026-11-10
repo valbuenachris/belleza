@@ -1696,9 +1696,14 @@ f"\U0001F495 ¡Te esperamos!{extra}"
                 "message": "La cita del recordatorio ya no existe.",
             }, ensure_ascii=False)
         if appointment.estado != "pending":
+            estado_msg = {
+                "confirmed": "Tu cita ya está confirmada. \u2705",
+                "cancelled": "Esta cita fue cancelada.",
+                "completed": "Esta cita ya fue completada.",
+            }
             return json.dumps({
-                "success": False,
-                "message": f"Esta cita ya está {appointment.estado}.",
+                "success": True,
+                "message": estado_msg.get(appointment.estado, f"Esta cita ya está {appointment.estado}."),
             }, ensure_ascii=False)
 
         try:
