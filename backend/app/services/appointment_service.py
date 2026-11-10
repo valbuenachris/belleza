@@ -478,16 +478,24 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
 
     today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
-
-    # Límites UTC para consultar created_at (payments se guardan en UTC)
-    hoy_utc = today.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-    maniana_utc = tomorrow.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    # today puede ser aware o naive; forzamos naive para queries DB
+    if today.tzinfo is not None:
+        hoy_utc = today.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        maniana_utc = tomorrow.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        today_naive = today.replace(tzinfo=None)
+        tomorrow_naive = tomorrow.replace(tzinfo=None)
+    else:
+        # Fallback: ahora local sin timezone (raro), asumimos que es UTC
+        hoy_utc = today
+        maniana_utc = tomorrow
+        today_naive = today
+        tomorrow_naive = tomorrow
 
     citas_hoy = db.query(Appointment).filter(
         Appointment.tenant_id == tenant_id,
         Appointment.deleted_at == None,
-        Appointment.date_time >= today,
-        Appointment.date_time < tomorrow,
+        Appointment.date_time >= today_naive,
+        Appointment.date_time < tomorrow_naive,
     ).all()
 
     total_citas_hoy = len(citas_hoy)

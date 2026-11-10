@@ -1145,7 +1145,7 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
                       <span className="text-[10px] text-stone-400 truncate max-w-[100px]">{p.observaciones}</span>
                     )}
                     <span className="text-[10px] text-stone-400">
-                      {p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO', { timeZone: timezone, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {p.created_at ? new Date(p.created_at + 'Z').toLocaleDateString('es-CO', { timeZone: timezone, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
                 </div>
