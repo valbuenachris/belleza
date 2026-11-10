@@ -490,6 +490,7 @@ export default function AppointmentsPage() {
           statusSaving={statusSaving}
           onStatusChange={(id, estado) => changeStatus(id, estado)}
           timezone={tz}
+          onPayment={(apt) => { setPaymentAppointment(apt); setShowPaymentModal(true); }}
         />
       )}
 
@@ -672,7 +673,7 @@ function MonthCalendarView({ calYear, calMonth, byDay, monthCellDates, monthCoun
 // Modal de resumen del día
 // ============================================================
 
-function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSaving, onStatusChange, timezone }: {
+function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSaving, onStatusChange, timezone, onPayment }: {
   dayKey: string;
   appointments: Appointment[];
   onClose: () => void;
@@ -680,6 +681,7 @@ function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSavin
   statusSaving: Record<string, boolean>;
   onStatusChange: (id: string, estado: string) => void;
   timezone: string;
+  onPayment?: (apt: Appointment) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -721,13 +723,29 @@ function DayModal({ dayKey, appointments, onClose, onNewAppointment, statusSavin
                     <p className="text-xs text-stone-500 truncate">{a.service} · {a.therapist}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize ${statusColors[a.estado] || 'bg-stone-100 text-stone-600'}`}>
-                      {statusLabels[a.estado] || a.estado}
-                    </span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full capitalize ${statusColors[a.estado] || 'bg-stone-100 text-stone-600'}`}>
+                        {statusLabels[a.estado] || a.estado}
+                      </span>
+                      {a.estado_pago && (
+                        <span className={`inline-flex px-1.5 py-0.5 text-[9px] font-medium rounded-full ${pagoColors[a.estado_pago] || 'bg-stone-50 text-stone-600'}`}>
+                          {pagoLabels[a.estado_pago] || a.estado_pago}
+                        </span>
+                      )}
+                    </div>
                     {statusSaving[a.id] ? (
                       <span className="text-[10px] text-stone-400">Guardando...</span>
                     ) : (
-                      <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
+                        {(a.estado === 'confirmed' || a.estado === 'completed') && onPayment && (
+                          <button
+                            onClick={() => onPayment(a)}
+                            className="px-1.5 py-1 rounded-md text-[10px] font-medium bg-stone-100 text-stone-500 hover:bg-stone-200 transition-colors"
+                            title="Registrar pago"
+                          >
+                            $
+                          </button>
+                        )}
                         {getNextActions(a.estado).map((act) => (
                           <button
                             key={act.key}
