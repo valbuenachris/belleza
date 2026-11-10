@@ -266,6 +266,13 @@ def create_appointment(db: Session, tenant_id: str, data: AppointmentCreate) -> 
     # creación de la cita si falla).
     notification_service.notify_new_appointment(db, appointment)
 
+    # Sincronizar item principal (garantiza que appointment_items tenga
+    # al menos un registro que refleje el servicio de cabecera).
+    try:
+        sync_item_from_service(db, appointment, service_data)
+    except Exception:
+        logger.warning(f"No se pudo sincronizar item para cita {appointment.id}", exc_info=True)
+
     logger.info(f"Cita creada: {appointment.id} para {appointment.patient} ({date_time})")
     return appointment
 

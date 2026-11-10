@@ -695,6 +695,47 @@ class WhatsAppAgentService:
                 "¿Quieres agendar una?"
             )
 
+        # 4b) Agregar servicio a cita existente: detecta "y [servicio]",
+        #     "también [servicio]", "además [servicio]" cuando el usuario
+        #     ya tiene una cita pending/confirmed reciente.
+        if conversation.patient_id and re.search(
+            r"\b(y\s+(el|la|un|una)|tambi[eé]n\s+(el|la|un|una)|adem[aá]s\s+(del?|de\s+la)|despu[eé]s\s+(de|del?))\s+\w+",
+            t, re.I
+        ):
+            apt = _last_appointment_for_patient(db, tenant_id, conversation.patient_id)
+            if apt:
+                svc = _find_service_from_text(db, tenant_id, t)
+                if svc:
+                    result = json.loads(
+                        _tool_add_service_to_appointment(
+                            db, tenant_id, str(apt.id), t
+                        )
+                    )
+                    if result.get("success"):
+                        extra = _suggest_multi_service(db, tenant_id, apt)
+                        return result["message"] + extra
+                    return result["message"]
+                # Si hay cita pero no se encontró el servicio en el texto,
+                # preguntar cuál quiere agregar
+                from ..models.service import Service as ServiceModel
+                services = (
+                    db.query(ServiceModel)
+                    .filter(
+                        ServiceModel.tenant_id == tenant_id,
+                        ServiceModel.is_active == True,
+                        ServiceModel.deleted_at == None,
+                    )
+                    .all()
+                )
+                if services:
+                    lines = [
+                        f"\U0001F469\u200D\U0001F3A9 {s.nombre} "
+                        f"({s.duracion} min) - ${int(s.precio or 0):,}".replace(",", ".")
+                        for s in services[:10]
+                    ]
+                    return ("He visto que ya tienes una cita. ¿Qué servicio quieres agregarle?\n" + "\n".join(lines) +
+                            "\n\nDime el nombre del servicio.")
+
         # 5) Detectar fecha/hora y agendar servicio (flujo completo sin IA).
         #    VA ANTES que #6 para que "Pa mañana a las 3 de la tarde" no sea
         #    interceptado por el regex de servicio (que contiene "la" y "de").
@@ -749,13 +790,41 @@ class WhatsAppAgentService:
                             estado="pending",
                         )
                         appointment = appointment_service.create_appointment(db, tenant_id, data)
+                        # Si el mensaje original menciona múltiples servicios,
+                        # agregar los adicionales como items a la misma cita
+                        from ..models.service import Service as ServiceModel
+                        all_matched = _find_all_services_in_text(db, tenant_id, t)
+                        second_svc = None
+                        for svc in all_matched:
+                            if str(svc.id) != str(matched_svc.id):
+                                second_svc = svc
+                                break
+                        if second_svc:
+                            try:
+                                from decimal import Decimal
+                                appointment_service.add_item(
+                                    db, tenant_id, appointment,
+                                    service_id=str(second_svc.id),
+                                    cantidad=1,
+                                    descuento=Decimal("0.00"),
+                                )
+                                extra = _suggest_multi_service(db, tenant_id, appointment)
+                                return (
+                                    f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
+                                    f"el {_format_date(appointment.date_time)} a las "
+                                    f"{_format_time(appointment.date_time)} con "
+                                    f"{matching_slot['therapist']}.\n\n"
+                                    f"✅ Además agregué {second_svc.nombre} a tu cita.{extra}"
+                                )
+                            except ValueError:
+                                pass
                         extra = _suggest_multi_service(db, tenant_id, appointment)
                         return (
                             f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
                             f"el {_format_date(appointment.date_time)} a las "
                             f"{_format_time(appointment.date_time)} con "
                             f"{matching_slot['therapist']}.\n\n"
-                            "\U0001F495 ¡Te esperamos!{extra}"
+                            f"\U0001F495 ¡Te esperamos!{extra}"
                         )
                     except ValueError as exc:
                         return f"Lo siento, no se pudo agendar: {str(exc)}"
@@ -920,7 +989,7 @@ class WhatsAppAgentService:
                     f"el {_format_date(appointment.date_time)} a las "
                     f"{_format_time(appointment.date_time)} con "
                     f"{matching_slot['therapist']}.\n\n"
-                    "\U0001F495 ¡Te esperamos!{extra}"
+                    f"\U0001F495 ¡Te esperamos!{extra}"
                 )
             except ValueError as exc:
                 return f"Lo siento, no se pudo agendar: {str(exc)}"
@@ -980,14 +1049,14 @@ class WhatsAppAgentService:
                             f"el {_format_date(appointment.date_time)} a las "
                             f"{_format_time(appointment.date_time)} con "
                             f"{therapist_name}.\n\n"
-                            "\U0001F495 ¡Te esperamos!{extra}"
+f"\U0001F495 ¡Te esperamos!{extra}"
                         )
                     except ValueError as exc:
                         return f"Lo siento, no se pudo agendar: {str(exc)}"
 
         # 9) Multi-servicio: agregar otro servicio a la cita recién creada
         if conversation.patient_id and re.search(
-            r"\b(otro\s+servicio|agregar|agrega|a[nñ]ade|m[aá]s\s+servicios|tambi[eé]n\s+quiero|adem[aá]s|otra\s+cosa)\b",
+            r"\b(otro\s+servicio|agregar|agrega|a[nñ]ade|m[aá]s\s+servicios|tambi[eé]n\s+quiero|adem[aá]s|otra\s+cosa|despu[eé]s)\b",
             t, re.I
         ):
             apt = _last_appointment_for_patient(db, tenant_id, conversation.patient_id)
@@ -1800,6 +1869,28 @@ def _find_service_from_text(db: Session, tenant_id: str, t: str) -> Optional[Ser
         if srv_words & t_words:
             return srv
     return None
+
+
+def _find_all_services_in_text(db: Session, tenant_id: str, t: str) -> list:
+    """Devuelve TODOS los servicios activos cuyas palabras aparezcan en `t`."""
+    if not t:
+        return []
+    services = (
+        db.query(Service)
+        .filter(
+            Service.tenant_id == tenant_id,
+            Service.is_active == True,
+            Service.deleted_at == None,
+        )
+        .all()
+    )
+    t_words = set(t.split())
+    found = []
+    for srv in services:
+        srv_words = set(srv.nombre.lower().split())
+        if srv_words & t_words:
+            found.append(srv)
+    return found
 
 
 def _find_service_in_history(db: Session, tenant_id: str, conversation_id: str) -> Optional[Service]:
