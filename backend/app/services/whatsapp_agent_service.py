@@ -711,14 +711,22 @@ class WhatsAppAgentService:
                         "\n\n\u2705 ¿Cuál deseas confirmar? Indica la fecha (ej. 'confirmar la del 10').")
             return "No tienes citas pendientes para confirmar. \U0001F60A"
 
-        # 1) Lista de servicios
-        if re.search(
-            r"\b(qu[eé]|cuales|cual[es]?) (servicios|tratamientos|masajes)\b|"
-            r"\b(servicios|tratamientos) (ofrece[ns]?|tiene[ns]?|hay)\b|"
-            r"\bqu[eé] (ofrece[ns]?|tiene[ns]?|vende[ns]?|ofreces?)\b|"
-            r"\bagendar\b(.*\b(cita|citas))?|"
-            r"\buna\s+cita\b|\bquiero\s+una\s+cita\b|\bs[ií]\b",
-            t,
+        # 1) Lista de servicios. NO si el mensaje ya trae fecha/hora (el flujo de
+        #    agendamiento ya está avanzando) ni si es un "sí" a un servicio ya
+        #    mostrado (que lo gestiona el guard #6 con el historial).
+        _booking_intent = _parse_booking_time(t, _tenant_now(db, tenant_id))
+        if (
+            not (_booking_intent and (_booking_intent[1] > 0 or _booking_intent[2] > 0))
+            and not _parse_only_time(t)
+            and not re.search(r"\s(s[ií])\b", t, re.I)
+            and re.search(
+                r"\b(qu[eé]|cuales|cual[es]?) (servicios|tratamientos|masajes)\b|"
+                r"\b(servicios|tratamientos) (ofrece[ns]?|tiene[ns]?|hay)\b|"
+                r"\bqu[eé] (ofrece[ns]?|tiene[ns]?|vende[ns]?|ofreces?)\b|"
+                r"\bagendar\b(.*\b(cita|citas))?|"
+                r"\buna\s+cita\b|\bquiero\s+una\s+cita\b",
+                t,
+            )
         ):
             try:
                 result = json.loads(self._tool_list_services(db, tenant_id) or "[]")
@@ -2193,6 +2201,15 @@ def _parse_only_time(t: str) -> Optional[tuple]:
             return "am"
         return ""
 
+    stripped = t.strip()
+    if re.match(r"^\d{1,2}(?::(\d{2}))?$", stripped):
+        parts = stripped.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+        if hour <= 7:
+            hour += 12
+        return (hour, minute)
+
     m = re.search(r"(?:a\s+)?las?\s*(\d{1,2})(?::(\d{2}))?", t, re.I)
     if not m:
         m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(?:de\s+la\s+(?:mañana|tarde|noche)|a\.?\s*m\.?|p\.?\s*m\.?)\b", t, re.I)
@@ -2206,7 +2223,7 @@ def _parse_only_time(t: str) -> Optional[tuple]:
         hour += 12
     elif period == "am" and hour == 12:
         hour = 0
-    elif period == "" and 1 <= hour <= 5 and re.search(r"\b(tarde|noche)\b", t, re.I):
+    elif period == "" and hour <= 7:
         hour += 12
 
     return (hour, minute)
@@ -2292,9 +2309,9 @@ def _parse_booking_time(t: str, now_local: datetime) -> Optional[tuple]:
         if hour12 == 12:
             hour12 = 0
     else:
-        # Sin indicación AM/PM: si es hora pequeña (1-5) y el mensaje contiene
-        # "tarde" o "noche", asumir PM
-        if hour12 <= 5 and re.search(r"\b(tarde|noche)\b", t, re.I):
+        # Sin indicación AM/PM: el SPA atiende en horario diurno (08:00-18:00),
+        # así que horas 1-7 sin aclaración son de la TARDE (PM): "a las 2" = 14:00.
+        if hour12 <= 7:
             hour12 += 12
 
     return (cita_date, hour12, minute)
