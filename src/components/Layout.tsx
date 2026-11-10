@@ -37,6 +37,15 @@ const navItems: { id: Page; label: string; icon: React.ReactNode; roles: string[
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
   const { user, tenant, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    localStorage.getItem('sidebarCollapsed') === 'true'
+  );
+
+  const toggleCollapsed = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    localStorage.setItem('sidebarCollapsed', next.toString());
+  };
 
   // ----------------------------------------------------------
   // Búsqueda global (debounce 300ms + atajo Ctrl/Cmd+K)
@@ -157,8 +166,9 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-stone-200 
-          transform transition-transform duration-300 ease-in-out flex flex-col
+        className={`fixed lg:static inset-y-0 left-0 z-50 bg-white border-r border-stone-200 
+          transform transition-all duration-300 ease-in-out flex flex-col
+          ${sidebarCollapsed ? 'w-16' : 'w-72'}
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Logo */}
@@ -166,10 +176,12 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
           <div className="w-10 h-10 bg-gradient-to-br from-emerald-400 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
             <Sparkles size={20} className="text-white" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-stone-800 tracking-tight">SPA Manager</h1>
-            <p className="text-xs text-stone-400 -mt-0.5">Sistema de Gestión</p>
-          </div>
+          {!sidebarCollapsed && (
+            <div>
+              <h1 className="text-lg font-bold text-stone-800 tracking-tight">SPA Manager</h1>
+              <p className="text-xs text-stone-400 -mt-0.5">Sistema de Gestión</p>
+            </div>
+          )}
           <button
             className="ml-auto lg:hidden p-1 rounded-lg hover:bg-stone-100"
             onClick={() => setSidebarOpen(false)}
@@ -179,7 +191,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         </div>
 
         {/* Tenant info */}
-        {tenant && (
+        {tenant && !sidebarCollapsed && (
           <div className="px-6 py-4 border-b border-stone-100">
             <p className="text-xs font-medium text-stone-400 uppercase tracking-wider">Tenant Activo</p>
             <p className="text-sm font-semibold text-stone-700 mt-1 truncate">{tenant.nombre}</p>
@@ -204,15 +216,15 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
               <span className={currentPage === item.id ? 'text-emerald-600' : 'text-stone-400'}>
                 {item.icon}
               </span>
-              {item.label}
-              {currentPage === item.id && (
+              {!sidebarCollapsed && item.label}
+              {currentPage === item.id && !sidebarCollapsed && (
                 <ChevronRight size={16} className="ml-auto text-emerald-400" />
               )}
             </button>
           ))}
         </nav>
 
-        {/* User section */}
+        {/* Collapse toggle / User section */}
         <div className="border-t border-stone-100 p-4">
           <div className="flex items-center gap-3 px-2">
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-stone-200 to-stone-300 flex items-center justify-center">
@@ -220,12 +232,14 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                 {user?.nombre?.[0]}{user?.apellido?.[0]}
               </span>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-stone-700 truncate">
-                {user?.nombre} {user?.apellido}
-              </p>
-              <p className="text-xs text-stone-400 capitalize">{user?.rol}</p>
-            </div>
+            {!sidebarCollapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-stone-700 truncate">
+                  {user?.nombre} {user?.apellido}
+                </p>
+                <p className="text-xs text-stone-400 capitalize">{user?.rol}</p>
+              </div>
+            )}
             <button
               onClick={handleLogout}
               className="p-2 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
@@ -234,6 +248,14 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
               <LogOut size={18} />
             </button>
           </div>
+          {/* Collapse toggle */}
+          <button
+            onClick={toggleCollapsed}
+            className="w-full flex items-center justify-center gap-1 px-2 py-1.5 mt-2 rounded-lg text-[10px] text-stone-400 hover:bg-stone-50 transition-colors"
+            title={sidebarCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+          >
+            <ChevronRight size={14} className={`transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`} />
+          </button>
         </div>
       </aside>
 
