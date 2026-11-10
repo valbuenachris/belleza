@@ -244,6 +244,11 @@ export interface Appointment {
   service: string;
   therapist: string;
   created_at: string | null;
+  // Payment fields
+  monto_total: number | null;
+  total_pagado: number | null;
+  descuento_total: number | null;
+  estado_pago: string | null;
 }
 
 export interface AppointmentCreateInput {
@@ -266,6 +271,34 @@ export interface AppointmentUpdateInput {
   estado?: string;
   precio?: number;
   notas?: string;
+}
+
+export interface AppointmentPayment {
+  id: string;
+  appointment_id: string;
+  monto: number;
+  metodo_pago: string;
+  descuento: number;
+  observaciones: string | null;
+  created_at: string | null;
+}
+
+export interface AppointmentPaymentCreateInput {
+  monto: number;
+  metodo_pago: string;
+  descuento?: number;
+  observaciones?: string;
+}
+
+export interface AppointmentItem {
+  id: string;
+  appointment_id: string;
+  service_id: string;
+  nombre_snapshot: string;
+  precio_unitario: number;
+  cantidad: number;
+  descuento: number;
+  subtotal: number;
 }
 
 export interface AppointmentsResponse {

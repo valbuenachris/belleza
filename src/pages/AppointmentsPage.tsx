@@ -35,6 +35,18 @@ const statusDots: Record<string, string> = {
   cancelled: 'bg-red-400',
 };
 
+const pagoLabels: Record<string, string> = {
+  unpaid: 'Sin pagar',
+  partial: 'Parcial',
+  paid: 'Pagado',
+};
+
+const pagoColors: Record<string, string> = {
+  unpaid: 'bg-red-50 text-red-600',
+  partial: 'bg-amber-50 text-amber-700',
+  paid: 'bg-emerald-50 text-emerald-700',
+};
+
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const WEEKDAYS_LONG = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -132,6 +144,8 @@ export default function AppointmentsPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [preselectedPatientId, setPreselectedPatientId] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState<Record<string, boolean>>({});
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentAppointment, setPaymentAppointment] = useState<Appointment | null>(null);
 
   const loadAppointments = useCallback(async () => {
     setLoading(true);
@@ -385,9 +399,16 @@ export default function AppointmentsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColors[apt.estado] || 'bg-stone-50 text-stone-600'}`}>
-                            {statusLabels[apt.estado] || apt.estado}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColors[apt.estado] || 'bg-stone-50 text-stone-600'}`}>
+                              {statusLabels[apt.estado] || apt.estado}
+                            </span>
+                            {apt.estado_pago && (
+                              <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full ${pagoColors[apt.estado_pago] || 'bg-stone-50 text-stone-600'}`}>
+                                {pagoLabels[apt.estado_pago] || apt.estado_pago}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-right hidden sm:table-cell">
                           <span className="text-sm font-medium text-stone-700">{currency(apt.precio)}</span>
@@ -406,6 +427,15 @@ export default function AppointmentsPage() {
                                   {act.label}
                                 </button>
                               ))}
+                              {(apt.estado === 'confirmed' || apt.estado === 'completed') && (
+                                <button
+                                  onClick={() => { setPaymentAppointment(apt); setShowPaymentModal(true); }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-50 text-stone-600 hover:bg-stone-100 transition-colors"
+                                  title="Registrar pago"
+                                >
+                                  <DollarSign className="w-3.5 h-3.5 inline-block" />
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -460,6 +490,19 @@ export default function AppointmentsPage() {
           statusSaving={statusSaving}
           onStatusChange={(id, estado) => changeStatus(id, estado)}
           timezone={tz}
+        />
+      )}
+
+      {showPaymentModal && paymentAppointment && (
+        <PaymentModal
+          appointment={paymentAppointment}
+          onClose={() => { setShowPaymentModal(false); setPaymentAppointment(null); }}
+          onPaid={() => {
+            setShowPaymentModal(false);
+            setPaymentAppointment(null);
+            loadAppointments();
+            loadCalendar();
+          }}
         />
       )}
     </div>
@@ -964,6 +1007,153 @@ function CreateAppointmentModal({ initialDate, initialPatientId, onClose, onCrea
             </div>
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Modal de Pago (Registrar pago)
+// ============================================================
+function PaymentModal({ appointment, onClose, onPaid }: {
+  appointment: Appointment;
+  onClose: () => void;
+  onPaid: () => void;
+}) {
+  const [monto, setMonto] = useState(appointment.monto_total ?? appointment.precio ?? 0);
+  const [metodoPago, setMetodoPago] = useState('efectivo');
+  const [descuento, setDescuento] = useState(0);
+  const [observaciones, setObservaciones] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const saldo = (appointment.monto_total ?? appointment.precio ?? 0) - (appointment.total_pagado ?? 0);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (monto <= 0) {
+      setError('El monto debe ser mayor a 0');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.registerAppointmentPayment(appointment.id, {
+        monto,
+        metodo_pago: metodoPago,
+        descuento: descuento > 0 ? descuento : undefined,
+        observaciones: observaciones || undefined,
+      });
+      onPaid();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al registrar el pago');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputClass = "w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400";
+  const pendiente = Math.max(0, saldo - monto);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-stone-100">
+          <h2 className="text-xl font-semibold text-stone-800">Registrar Pago</h2>
+          <p className="text-sm text-stone-500 mt-1">
+            {appointment.patient} — {appointment.service} ({aptTime(appointment)}h)
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-4 bg-red-50 border-b border-red-100 text-sm text-red-600">{error}</div>
+        )}
+
+        <div className="p-6 space-y-3 bg-stone-50 border-b border-stone-100">
+          <div className="flex justify-between text-sm">
+            <span className="text-stone-600">Total cita</span>
+            <span className="font-semibold text-stone-800">${(appointment.monto_total ?? appointment.precio ?? 0).toLocaleString('es-CO')}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-stone-600">Pagado</span>
+            <span className="font-semibold text-emerald-700">${(appointment.total_pagado ?? 0).toLocaleString('es-CO')}</span>
+          </div>
+          <div className="flex justify-between text-sm border-t border-stone-200 pt-2">
+            <span className="font-medium text-stone-700">Saldo pendiente</span>
+            <span className="font-bold text-amber-700">${saldo.toLocaleString('es-CO')}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Monto a pagar *</label>
+            <input
+              type="number" required min={1} step={100}
+              value={monto}
+              onChange={(e) => setMonto(Number(e.target.value))}
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Método de pago</label>
+            <select
+              value={metodoPago}
+              onChange={(e) => setMetodoPago(e.target.value)}
+              className={inputClass}
+            >
+              <option value="efectivo">Efectivo</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="nequi">Nequi</option>
+              <option value="daviplata">Daviplata</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Descuento</label>
+            <input
+              type="number" min={0} step={100}
+              value={descuento}
+              onChange={(e) => setDescuento(Number(e.target.value))}
+              className={inputClass}
+              placeholder="0"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Observaciones</label>
+            <input
+              type="text"
+              value={observaciones}
+              onChange={(e) => setObservaciones(e.target.value)}
+              className={inputClass}
+              placeholder="Opcional"
+            />
+          </div>
+
+          {pendiente > 0 && (
+            <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
+              Queda un saldo pendiente de ${pendiente.toLocaleString('es-CO')} después de este pago (crédito).
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button" onClick={onClose}
+              className="flex-1 py-2.5 border border-stone-200 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit" disabled={loading || monto <= 0}
+              className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 transition-all"
+            >
+              {loading ? 'Registrando...' : 'Registrar Pago'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -11,6 +11,8 @@ from .pass_registration import PassRegistration
 from .assistant import AssistantQuery
 from .notification import Notification
 from .whatsapp import WhatsAppSettings, WhatsAppConversation, WhatsAppMessage
+from .appointment_item import AppointmentItem, AppointmentPayment
+from .service_related import ServiceRelated
 
 __all__ = [
     "Base",
@@ -27,4 +29,7 @@ __all__ = [
     "WhatsAppSettings",
     "WhatsAppConversation",
     "WhatsAppMessage",
+    "AppointmentItem",
+    "AppointmentPayment",
+    "ServiceRelated",
 ]

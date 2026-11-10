@@ -28,6 +28,8 @@ import {
   ClinicalRecordsResponse,
   WalletPassData,
   RedeemSessionResult,
+  AppointmentPayment,
+  AppointmentPaymentCreateInput,
   ScanLoyaltyResult,
   GoogleWalletSaveData,
   UserCreate,
@@ -592,6 +594,28 @@ export const api = {
   async cancelAppointment(id: string): Promise<Appointment> {
     const res = await request<{ appointment: Appointment }>(`/appointments/${id}`, { method: 'DELETE' });
     return res.appointment;
+  },
+
+  async getAppointmentPayments(appointmentId: string): Promise<{ payments: AppointmentPayment[] }> {
+    return request<{ payments: AppointmentPayment[] }>(`/appointments/${appointmentId}/payments`);
+  },
+
+  async registerAppointmentPayment(appointmentId: string, data: AppointmentPaymentCreateInput): Promise<any> {
+    const res = await request<{ payment: AppointmentPayment; status: any; message: string }>(`/appointments/${appointmentId}/payments`, {
+      method: 'POST',
+      body: data,
+    });
+    return res;
+  },
+
+  async cancelAppointmentPayment(appointmentId: string, paymentId: string): Promise<any> {
+    return request<{ message: string; status: any }>(`/appointments/${appointmentId}/payments/${paymentId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getAppointmentPaymentStatus(appointmentId: string): Promise<any> {
+    return request(`/appointments/${appointmentId}/payment-status`);
   },
 
   async getAppointmentSummary(): Promise<AppointmentSummary> {

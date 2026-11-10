@@ -14,6 +14,7 @@ from ..models.appointment import Appointment, ESTADOS_CITA
 from ..models.patient import Patient
 from ..models.user import User
 from ..models.service import Service
+from ..models.appointment_item import AppointmentPayment
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate
 from ..services import loyalty_service, notification_service
 from ..utils.security import generate_uuid
@@ -371,6 +372,13 @@ def update_appointment(
         body["estado"] = body["estado"].lower()
         if body["estado"] not in ESTADOS_CITA:
             raise ValueError(f"Estado inválido. Opciones: {', '.join(ESTADOS_CITA)}")
+        # No permitir completar si la cita no tiene pagos registrados
+        if body["estado"] == "completed":
+            if appointment.estado_pago == "unpaid":
+                raise ValueError(
+                    "No se puede completar la cita sin pagos registrados. "
+                    "Registra un pago primero o usa 'Estados de pago: crédito'."
+                )
 
     # Nueva fecha/hora: solo se reconstruye si el payload trae date_time o fecha+time.
     # Una actualización parcial (p. ej. solo estado) no debe exigir horario.
@@ -659,4 +667,287 @@ def build_appointment_response(appointment: Appointment) -> dict:
         "service": appointment.service,
         "therapist": appointment.therapist,
         "created_at": appointment.created_at.isoformat() if appointment.created_at else None,
+        # Campos de pago (crédito / parcial / total)
+        "monto_total": float(appointment.monto_total) if appointment.monto_total is not None else None,
+        "total_pagado": float(appointment.total_pagado) if appointment.total_pagado is not None else 0.0,
+        "descuento_total": float(appointment.descuento_total) if appointment.descuento_total is not None else 0.0,
+        "estado_pago": appointment.estado_pago or "unpaid",
+    }
+
+# ============================================================
+# Items (multi-servicio)
+# ============================================================
+
+def sync_item_from_service(
+    db: Session,
+    appointment: Appointment,
+    service: Optional[Service] = None,
+) -> AppointmentItem:
+    """
+    Garantiza que la cita tenga al menos un item correspondiente al
+    servicio principal (compatibilidad: la UI/envío de citas sigue
+    usando service_id de cabecera; los items son la fuente de cálculo
+    del precio cuando existen).
+    """
+    from ..models.appointment_item import AppointmentItem
+
+    svc = service or (
+        db.query(Service).filter(Service.id == appointment.service_id).first()
+    )
+    if not svc:
+        return None
+
+    item = (
+        db.query(AppointmentItem)
+        .filter(
+            AppointmentItem.tenant_id == str(appointment.tenant_id),
+            AppointmentItem.appointment_id == appointment.id,
+            AppointmentItem.is_active == True,
+            AppointmentItem.deleted_at == None,
+        )
+        .first()
+    )
+    if item:
+        return item
+
+    item = AppointmentItem(
+        id=generate_uuid(),
+        tenant_id=appointment.tenant_id,
+        appointment_id=str(appointment.id),
+        service_id=str(svc.id),
+        nombre_snapshot=svc.nombre,
+        precio_unitario=svc.precio or Decimal("0.00"),
+        cantidad=1,
+        descuento=Decimal("0.00"),
+        subtotal=(svc.precio or Decimal("0.00")),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def add_item(
+    db: Session,
+    tenant_id: str,
+    appointment: Appointment,
+    service_id: str,
+    cantidad: int = 1,
+    descuento: Decimal = Decimal("0.00"),
+) -> AppointmentItem:
+    """Agrega un servicio (item) adicional a la cita."""
+    from ..models.appointment_item import AppointmentItem
+
+    service = db.query(Service).filter(
+        Service.id == service_id,
+        Service.tenant_id == tenant_id,
+        Service.deleted_at == None,
+    ).first()
+    if not service:
+        raise ValueError("Servicio no válido para este SPA")
+
+    unit = service.precio or Decimal("0.00")
+    subtotal = unit * cantidad - descuento
+    item = AppointmentItem(
+        id=generate_uuid(),
+        tenant_id=tenant_id,
+        appointment_id=str(appointment.id),
+        service_id=str(service.id),
+        nombre_snapshot=service.nombre,
+        precio_unitario=unit,
+        cantidad=cantidad,
+        descuento=descuento,
+        subtotal=subtotal,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    _recalc_monto(db, appointment)
+    return item
+
+
+def list_items(db: Session, tenant_id: str, appointment_id: str) -> list:
+    from ..models.appointment_item import AppointmentItem
+
+    return (
+        db.query(AppointmentItem)
+        .filter(
+            AppointmentItem.tenant_id == tenant_id,
+            AppointmentItem.appointment_id == appointment_id,
+            AppointmentItem.is_active == True,
+            AppointmentItem.deleted_at == None,
+        )
+        .order_by(AppointmentItem.created_at.asc())
+        .all()
+    )
+
+
+def remove_item(db: Session, tenant_id: str, item_id: str, appointment_id: str):
+    from ..models.appointment_item import AppointmentItem
+
+    item = db.query(AppointmentItem).filter(
+        AppointmentItem.id == item_id,
+        AppointmentItem.tenant_id == tenant_id,
+        AppointmentItem.appointment_id == appointment_id,
+        AppointmentItem.deleted_at == None,
+    ).first()
+    if not item:
+        return False
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == tenant_id,
+        Appointment.deleted_at == None,
+    ).first()
+    if not appointment:
+        return False
+    item.soft_delete()
+    db.commit()
+    _recalc_monto(db, appointment)
+    return True
+
+
+def _recalc_monto(db: Session, appointment: Appointment):
+    """Recalcula monto_total, descuento_total y estado_pago de la cita."""
+    from sqlalchemy import func as sa_func
+    from ..models.appointment_item import AppointmentItem
+    from ..models.appointment import Appointment
+
+    items = db.query(AppointmentItem).filter(
+        AppointmentItem.appointment_id == appointment.id,
+        AppointmentItem.tenant_id == appointment.tenant_id,
+        AppointmentItem.is_active == True,
+        AppointmentItem.deleted_at == None,
+    ).all()
+
+    monto_total = sum((i.subtotal for i in items), Decimal("0.00")) if items else (appointment.precio or Decimal("0.00"))
+    descuento_total = sum((i.descuento for i in items), Decimal("0.00")) if items else (appointment.descuento_total or Decimal("0.00"))
+
+    pagado_sum = (
+        db.query(sa_func.coalesce(sa_func.sum(AppointmentPayment.monto), 0))
+        .filter(
+            AppointmentPayment.appointment_id == appointment.id,
+            AppointmentPayment.tenant_id == appointment.tenant_id,
+            AppointmentPayment.is_active == True,
+            AppointmentPayment.deleted_at == None,
+        )
+        .scalar()
+    )
+    total_pagado = Decimal(str(pagado_sum or 0))
+
+    appointment.monto_total = monto_total
+    appointment.descuento_total = descuento_total
+    appointment.total_pagado = total_pagado
+
+    if monto_total is not None and total_pagado >= monto_total:
+        appointment.estado_pago = "paid"
+    elif total_pagado > 0:
+        appointment.estado_pago = "partial"
+    else:
+        appointment.estado_pago = "unpaid"
+    db.commit()
+    db.refresh(appointment)
+
+
+# ============================================================
+# Pagos
+# ============================================================
+
+def register_payment(
+    db: Session,
+    tenant_id: str,
+    appointment_id: str,
+    monto: Decimal,
+    metodo_pago: str = "efectivo",
+    descuento: Decimal = Decimal("0.00"),
+    observaciones: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> AppointmentPayment:
+    """Registra un pago y actualiza estado_pago (crédito permitido)."""
+    from ..models.appointment_item import AppointmentPayment
+
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == tenant_id,
+        Appointment.deleted_at == None,
+    ).first()
+    if not appointment:
+        raise ValueError("Cita no encontrada")
+
+    payment = AppointmentPayment(
+        id=generate_uuid(),
+        tenant_id=tenant_id,
+        appointment_id=appointment_id,
+        monto=monto,
+        metodo_pago=metodo_pago,
+        descuento=descuento,
+        observaciones=observaciones,
+        created_by=user_id,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    _recalc_monto(db, appointment)
+    return payment
+
+
+def list_payments(db: Session, tenant_id: str, appointment_id: str) -> list:
+    from ..models.appointment_item import AppointmentPayment
+
+    return (
+        db.query(AppointmentPayment)
+        .filter(
+            AppointmentPayment.tenant_id == tenant_id,
+            AppointmentPayment.appointment_id == appointment_id,
+            AppointmentPayment.is_active == True,
+            AppointmentPayment.deleted_at == None,
+        )
+        .order_by(AppointmentPayment.created_at.desc())
+        .all()
+    )
+
+
+def cancel_payment(db: Session, tenant_id: str, appointment_id: str, payment_id: str) -> bool:
+    """Anula un pago y recalcula el estado de pago (best-effort)."""
+    from ..models.appointment_item import AppointmentPayment
+
+    payment = db.query(AppointmentPayment).filter(
+        AppointmentPayment.id == payment_id,
+        AppointmentPayment.tenant_id == tenant_id,
+        AppointmentPayment.appointment_id == appointment_id,
+        AppointmentPayment.deleted_at == None,
+    ).first()
+    if not payment:
+        return False
+    appointment_id_p = payment.appointment_id
+    payment.soft_delete()
+    db.commit()
+
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id_p,
+        Appointment.tenant_id == tenant_id,
+        Appointment.deleted_at == None,
+    ).first()
+    if appointment:
+        _recalc_monto(db, appointment)
+    return True
+
+
+def payment_status(db: Session, tenant_id: str, appointment_id: str) -> dict:
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == tenant_id,
+        Appointment.deleted_at == None,
+    ).first()
+    if not appointment:
+        return None
+    _recalc_monto(db, appointment)
+    monto = appointment.monto_total or Decimal("0.00")
+    pagado = appointment.total_pagado or Decimal("0.00")
+    return {
+        "appointment_id": str(appointment.id),
+        "monto_total": appointment.monto_total,
+        "total_pagado": appointment.total_pagado,
+        "descuento_total": appointment.descuento_total,
+        "estado_pago": appointment.estado_pago,
+        "saldo_pendiente": (monto - pagado) if monto > 0 else Decimal("0.00"),
     }

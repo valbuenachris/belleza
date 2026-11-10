@@ -749,12 +749,13 @@ class WhatsAppAgentService:
                             estado="pending",
                         )
                         appointment = appointment_service.create_appointment(db, tenant_id, data)
+                        extra = _suggest_multi_service(db, tenant_id, appointment)
                         return (
                             f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
                             f"el {_format_date(appointment.date_time)} a las "
                             f"{_format_time(appointment.date_time)} con "
                             f"{matching_slot['therapist']}.\n\n"
-                            "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                            "\U0001F495 ¡Te esperamos!{extra}"
                         )
                     except ValueError as exc:
                         return f"Lo siento, no se pudo agendar: {str(exc)}"
@@ -913,12 +914,13 @@ class WhatsAppAgentService:
                     estado="pending",
                 )
                 appointment = appointment_service.create_appointment(db, tenant_id, data)
+                extra = _suggest_multi_service(db, tenant_id, appointment)
                 return (
                     f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
                     f"el {_format_date(appointment.date_time)} a las "
                     f"{_format_time(appointment.date_time)} con "
                     f"{matching_slot['therapist']}.\n\n"
-                    "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                    "\U0001F495 ¡Te esperamos!{extra}"
                 )
             except ValueError as exc:
                 return f"Lo siento, no se pudo agendar: {str(exc)}"
@@ -972,15 +974,120 @@ class WhatsAppAgentService:
                             estado="pending",
                         )
                         appointment = appointment_service.create_appointment(db, tenant_id, data)
+                        extra = _suggest_multi_service(db, tenant_id, appointment)
                         return (
                             f"\u2705 Cita CONFIRMADA: {appointment.service or svc.nombre} "
                             f"el {_format_date(appointment.date_time)} a las "
                             f"{_format_time(appointment.date_time)} con "
                             f"{therapist_name}.\n\n"
-                            "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                            "\U0001F495 ¡Te esperamos!{extra}"
                         )
                     except ValueError as exc:
                         return f"Lo siento, no se pudo agendar: {str(exc)}"
+
+        # 9) Multi-servicio: agregar otro servicio a la cita recién creada
+        if conversation.patient_id and re.search(
+            r"\b(otro\s+servicio|agregar|agrega|a[nñ]ade|m[aá]s\s+servicios|tambi[eé]n\s+quiero|adem[aá]s|otra\s+cosa)\b",
+            t, re.I
+        ):
+            apt = _last_appointment_for_patient(db, tenant_id, conversation.patient_id)
+            if not apt:
+                return None  # no hay cita, deja que la IA lo maneje
+            # Si el texto nombra un servicio específico, agregarlo
+            svc = _find_service_from_text(db, tenant_id, t)
+            if svc:
+                result = json.loads(
+                    _tool_add_service_to_appointment(
+                        db, tenant_id, str(apt.id), t
+                    )
+                )
+                if result.get("success"):
+                    extra = _suggest_multi_service(db, tenant_id, apt)
+                    return result["message"] + extra
+                return result["message"]
+            # Si el usuario solo dijo "sí" sin servicio, mostrar lista
+            from ..models.service import Service as ServiceModel
+            services = (
+                db.query(ServiceModel)
+                .filter(
+                    ServiceModel.tenant_id == tenant_id,
+                    ServiceModel.is_active == True,
+                    ServiceModel.deleted_at == None,
+                )
+                .all()
+            )
+            if services:
+                lines = [
+                    f"\U0001F469\u200D\U0001F3A9 {s.nombre} "
+                    f"({s.duracion} min) - ${int(s.precio or 0):,}".replace(",", ".")
+                    for s in services[:10]
+                ]
+                return ("¿Qué servicio te gustaría agregar a tu cita?\n" + "\n".join(lines) +
+                        "\n\nDime el nombre del servicio.")
+            return None
+
+        # 10) Cambiar servicio de una cita existente
+        if conversation.patient_id and re.search(
+            r"\b(cambiar|cambio|remplazar|cambia)\w*\s+.*\b(servicio|tratamiento|masaje)\b",
+            t, re.I
+        ):
+            apts_list = json.loads(
+                self._tool_list_appointments(db, tenant_id, str(conversation.patient_id), conversation)
+            )
+            if not isinstance(apts_list, list) or not apts_list:
+                return "No tienes citas agendadas. \U0001F60A"
+            # Buscar una fecha/hora mencionada
+            import re as re_ch
+            m = re_ch.search(r"\b(\d{4}-\d{2}-\d{2})\b", t)
+            target_id = None
+            target_msg = None
+            if m:
+                for ap in apts_list:
+                    if ap.get("date") == m.group(1):
+                        target_id = ap.get("id")
+                        target_msg = ap
+                        break
+            if not target_id:
+                m = re_ch.search(r"\bde[l]?\s+(\d{1,2})\b", t)
+                if m:
+                    dn = int(m.group(1))
+                    for ap in apts_list:
+                        try:
+                            if datetime.strptime(ap.get("date",""), "%Y-%m-%d").day == dn:
+                                target_id = ap.get("id")
+                                target_msg = ap
+                                break
+                        except:
+                            continue
+            if not target_id:
+                # Solo la primera pending/confirmed
+                for ap in apts_list:
+                    if ap.get("status") in ("pending", "confirmed"):
+                        target_id = ap.get("id")
+                        target_msg = ap
+                        break
+            if not target_id:
+                return "No encontré esa cita. \U0001F60A"
+
+            # Ver si el texto ya menciona un nuevo servicio
+            svc = _find_service_from_text(db, tenant_id, t)
+            if svc:
+                from ..schemas.appointment import AppointmentUpdate
+                try:
+                    updated = appointment_service.update_appointment(
+                        db, tenant_id, target_id,
+                        AppointmentUpdate(service_id=str(svc.id))
+                    )
+                    if updated:
+                        return (f"\u2705 Servicio cambiado a {svc.nombre} para tu cita del "
+                                f"{target_msg['date']} a las {target_msg['time']}.")
+                    return "No se pudo cambiar el servicio."
+                except ValueError as exc:
+                    return f"Error: {str(exc)}"
+            # Mostrar la cita y preguntar nuevo servicio
+            lines_list = [f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} ({ap.get('status')})" for ap in apts_list[:5]]
+            return ("Tienes estas citas:\n" + "\n".join(lines_list) +
+                    "\n\n\u2705 ¿A cuál quieres cambiarle el servicio? Indica la fecha.")
 
         return None
 
@@ -1347,6 +1454,7 @@ class WhatsAppAgentService:
             )
             appointment = appointment_service.create_appointment(db, tenant_id, data)
             estado_label = "CONFIRMADA" if appointment.estado == "confirmed" else "programada"
+            suggestion = _suggest_multi_service(db, tenant_id, appointment)
             return json.dumps({
                 "success": True,
                 "appointment_id": str(appointment.id),
@@ -1356,6 +1464,7 @@ class WhatsAppAgentService:
                     f"{_format_time(appointment.date_time)} con "
                     f"{appointment.therapist or 'terapeuta'}"
                 ),
+                "suggestion": suggestion,
             }, ensure_ascii=False)
         except ValueError as exc:
             return json.dumps({"success": False, "message": str(exc)}, ensure_ascii=False)
@@ -1493,7 +1602,10 @@ class WhatsAppAgentService:
             db.query(WhatsAppMessage.id)
             .filter(
                 WhatsAppMessage.tenant_id == tenant_id,
-                WhatsAppMessage.message_id == f"reminder:{appointment.id}",
+                WhatsAppMessage.message_id.in_([
+                    f"reminder_eve:{appointment.id}",
+                    f"reminder_2h:{appointment.id}",
+                ]),
             )
             .first()
         )
@@ -1523,6 +1635,130 @@ class WhatsAppAgentService:
             }, ensure_ascii=False)
         except ValueError as exc:
             return json.dumps({"success": False, "message": str(exc)}, ensure_ascii=False)
+
+
+# ============================================================
+# Multi-servicio y sugerencias
+# ============================================================
+
+def _last_appointment_for_patient(db: Session, tenant_id: str, patient_id: str) -> Optional[Appointment]:
+    """Última cita pending/confirmed del paciente (más reciente)."""
+    return (
+        db.query(Appointment)
+        .filter(
+            Appointment.tenant_id == tenant_id,
+            Appointment.patient_id == patient_id,
+            Appointment.deleted_at == None,
+            Appointment.estado.in_(["pending", "confirmed"]),
+        )
+        .order_by(Appointment.created_at.desc())
+        .first()
+    )
+
+
+def _get_related_services_text(db: Session, tenant_id: str, service_id: str) -> Optional[str]:
+    """Devuelve texto formateado con servicios relacionados, o None."""
+    from ..models.service_related import ServiceRelated
+
+    rels = (
+        db.query(ServiceRelated)
+        .filter(
+            ServiceRelated.tenant_id == tenant_id,
+            ServiceRelated.service_id == service_id,
+            ServiceRelated.deleted_at == None,
+        )
+        .all()
+    )
+    if not rels:
+        return None
+    lines = []
+    for r in rels:
+        related = (
+            db.query(Service)
+            .filter(
+                Service.id == r.related_service_id,
+                Service.tenant_id == tenant_id,
+                Service.is_active == True,
+                Service.deleted_at == None,
+            )
+            .first()
+        )
+        if related:
+            lines.append(
+                f"- {related.nombre} ({related.duracion} min - "
+                f"${int(related.precio or 0):,})".replace(",", ".")
+            )
+    if not lines:
+        return None
+    return "Servicios relacionados:\n" + "\n".join(lines[:5])
+
+
+def _suggest_multi_service(db: Session, tenant_id: str, appointment: Appointment) -> str:
+    """Mensaje que pregunta si quiere agregar otro servicio + sugerencias."""
+    related = _get_related_services_text(db, tenant_id, appointment.service_id)
+    extra = (
+        f"\n\n{related}\n" if related else "\n\n"
+    )
+    return f"{extra}\U0001F4AC ¿Te gustaría agregar otro servicio a tu cita? Puedes decirme el nombre y lo añado."
+
+
+def _tool_add_service_to_appointment(
+    db: Session, tenant_id: str, appointment_id: str, text: str
+) -> str:
+    """Agrega un servicio a la cita por texto."""
+    from ..models.appointment_item import AppointmentItem
+    from ..schemas.appointment import AppointmentItemCreate
+
+    service = _find_service_from_text(db, tenant_id, text)
+    if not service:
+        return json.dumps({
+            "success": False,
+            "message": "No encontré ese servicio. ¿Puedes decirme el nombre exacto?"
+        }, ensure_ascii=False)
+
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id,
+        Appointment.tenant_id == tenant_id,
+        Appointment.deleted_at == None,
+    ).first()
+    if not appointment:
+        return json.dumps({"success": False, "message": "Cita no encontrada"})
+
+    # Verificar que no esté ya agregado
+    existing = (
+        db.query(AppointmentItem)
+        .filter(
+            AppointmentItem.tenant_id == tenant_id,
+            AppointmentItem.appointment_id == appointment_id,
+            AppointmentItem.service_id == str(service.id),
+            AppointmentItem.is_active == True,
+            AppointmentItem.deleted_at == None,
+        )
+        .first()
+    )
+    if existing:
+        return json.dumps({
+            "success": True,
+            "message": f"El servicio {service.nombre} ya está agregado a tu cita.",
+        }, ensure_ascii=False)
+
+    try:
+        from decimal import Decimal
+        item = appointment_service.add_item(
+            db, tenant_id, appointment,
+            service_id=str(service.id),
+            cantidad=1,
+            descuento=Decimal("0.00"),
+        )
+        return json.dumps({
+            "success": True,
+            "message": (
+                f"\u2705 He agregado {service.nombre} a tu cita del "
+                f"{_format_date(appointment.date_time)}. "
+            ),
+        }, ensure_ascii=False)
+    except ValueError as exc:
+        return json.dumps({"success": False, "message": str(exc)}, ensure_ascii=False)
 
 
 def instance_name(settings: Optional[WhatsAppSettings]) -> str:

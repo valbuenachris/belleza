@@ -80,6 +80,65 @@ class AppointmentUpdate(BaseModel):
 # Schema de respuesta (con campos calculados para la UI)
 # ============================================================
 
+# ============================================================
+# Ítems de cita (multi-servicio)
+# ============================================================
+
+class AppointmentItemCreate(BaseModel):
+    """Datos para agregar un servicio (item) a una cita."""
+    service_id: str = Field(..., description="ID del servicio a agregar")
+    cantidad: int = Field(1, ge=1, le=100)
+    descuento: Optional[Decimal] = Field(Decimal("0.00"), ge=0)
+
+
+class AppointmentItemUpdate(BaseModel):
+    service_id: Optional[str] = None
+    cantidad: Optional[int] = Field(None, ge=1, le=100)
+    descuento: Optional[Decimal] = Field(None, ge=0)
+
+
+class AppointmentItemResponse(BaseModel):
+    id: str
+    appointment_id: str
+    service_id: str
+    nombre_snapshot: str
+    precio_unitario: Decimal
+    cantidad: int
+    descuento: Decimal
+    subtotal: Decimal
+    created_at: datetime
+
+
+# ============================================================
+# Pagos de cita (crédito / parcial / total)
+# ============================================================
+
+class AppointmentPaymentCreate(BaseModel):
+    monto: Decimal = Field(..., gt=0)
+    metodo_pago: str = Field("efectivo", description="efectivo|tarjeta|transferencia|nequi|daviplata|otro")
+    descuento: Optional[Decimal] = Field(Decimal("0.00"), ge=0)
+    observaciones: Optional[str] = None
+
+
+class AppointmentPaymentResponse(BaseModel):
+    id: str
+    appointment_id: str
+    monto: Decimal
+    metodo_pago: str
+    descuento: Decimal
+    observaciones: Optional[str] = None
+    created_at: datetime
+
+
+class PaymentStatusResponse(BaseModel):
+    appointment_id: str
+    monto_total: Optional[Decimal] = None
+    total_pagado: Optional[Decimal] = None
+    descuento_total: Optional[Decimal] = None
+    estado_pago: str
+    saldo_pendiente: Optional[Decimal] = None
+
+
 class AppointmentResponse(BaseModel):
     """Respuesta de cita con campos calculados (nombres, hora, etc.)."""
     model_config = ConfigDict(from_attributes=True)

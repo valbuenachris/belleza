@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .patient import Patient
     from .user import User
     from .service import Service
+    from .appointment_item import AppointmentItem, AppointmentPayment
 
 
 # Roles permitidos para el estado de una cita
@@ -97,6 +98,34 @@ class Appointment(Base, TenantBaseModel):
     )
 
     # ----------------------------------------------------------
+    # Pagos (crédito / pago total / parcial)
+    # ----------------------------------------------------------
+    monto_total: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Monto total de la cita (suma de items sin descuentos)",
+    )
+    total_pagado: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        default=Decimal("0.00"),
+        comment="Total efectivamente pagado",
+    )
+    descuento_total: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        default=Decimal("0.00"),
+        comment="Descuento total aplicado a la cita",
+    )
+    estado_pago: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="unpaid",
+        server_default="unpaid",
+        comment="Estado de pago: unpaid, partial, paid (partial = crédito)",
+    )
+
+    # ----------------------------------------------------------
     # Programa de fidelidad
     # ----------------------------------------------------------
     loyalty_awarded: Mapped[bool] = mapped_column(
@@ -129,6 +158,18 @@ class Appointment(Base, TenantBaseModel):
         back_populates="citas",
         foreign_keys="[Appointment.service_id]",
         lazy="selectin",
+    )
+    items_rel: Mapped[list["AppointmentItem"]] = relationship(
+        "AppointmentItem",
+        back_populates="appointment_rel",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+    pagos_rel: Mapped[list["AppointmentPayment"]] = relationship(
+        "AppointmentPayment",
+        back_populates="appointment_rel",
+        lazy="selectin",
+        passive_deletes=True,
     )
 
     # ----------------------------------------------------------
