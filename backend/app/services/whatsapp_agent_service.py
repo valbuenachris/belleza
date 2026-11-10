@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..config import settings as s
-from ..models.appointment import Appointment
+from ..models.appointment import Appointment, ESTADOS_CITA
 from ..models.patient import Patient
 from ..models.service import Service
 from ..models.user import User
@@ -111,64 +111,30 @@ FALLBACK_DISABLED_REPLY = (
     "tu cita. \u2757 "
 )
 
+_JSON_CORRECTION = (
+    "Tu respuesta no fue JSON válido. Corrige: responde UNA sola línea "
+    "JSON: {\"reply\": \"mensaje corto\"} o {\"tool\": \"nombre\", \"args\": {...}}. "
+    "Prohibido razonamiento, inglés, pasos o IDs. Solo español."
+)
+
+
 SYSTEM_PROMPT_TEMPLATE = (
-    "Eres un asistente virtual de un SPA (centro de estética y relajación). "
-    "Tu nombre es {agent_name}. Tu tono de comunicación es {agent_tone}.\n\n"
-    "{cliente_context}\n\n"
-    "{now_context}\n\n"
-    "Tu función es ayudar a los clientes a gestionar sus citas a través de WhatsApp: "
-    "agendar, modificar o cancelar citas, y consultar disponibilidad.\n"
-    "Debes responder SIEMPRE en español, de forma amable, clara y concisa.\n\n"
-    "Dispones de herramientas que puedes invocar. Tu respuesta DEBE SER "
-    "SIEMPRE UNA ÚNICA LÍNEA CON JSON VÁLIDO, exactamente en uno de estos dos formatos:\n\n"
-    "1. Para responder directamente al cliente (saludo, pregunta, confirmación, etc.):\n"
-    '   {"reply": "tu mensaje al cliente"}\n\n'
-    "2. Para ejecutar una herramienta:\n"
-    '   {"tool": "nombre", "args": {...}}\n\n'
-    "HERRAMIENTAS DISPONIBLES:\n"
-    '1. find_patient(phone)->dict: identifica al cliente por su número de teléfono. '
-    "Es la herramienta que debes usar para obtener el patient_id del cliente cuando lo "
-    "necesites. Args: {\"phone\": \"número\"}. Retorna patient_id y patient_name (o los crea).\n"
-    '2. list_services()->list: lista servicios del SPA. Args: {}. '
-    "Retorna [{id, name, duration, price}].\n"
-    '3. check_availability(date, service_id)->list: horarios libres para un servicio '
-    "en una fecha (YYYY-MM-DD). Args: {\"date\": \"YYYY-MM-DD\", \"service_id\": \"id\"}. "
-    "Retorna [{time, therapist, therapist_id}].\n"
-    '4. book_appointment(patient_id, service_id, therapist_id, date_time)->dict: '
-    "agenda la cita. Args: {\"patient_id\": id, \"service_id\": id, \"therapist_id\": id, "
-    "\"date_time\": \"YYYY-MM-DD HH:MM\"}. Retorna {success, appointment_id, message}.\n"
-    '5. modify_appointment(appointment_id, date_time?, service_id?)->dict: modifica una '
-    "cita. Args: {\"appointment_id\": id, \"date_time\"?: \"YYYY-MM-DD HH:MM\", "
-    "\"service_id\"?: id}. Retorna {success, message}.\n"
-    '6. cancel_appointment(appointment_id)->dict: cancela una cita. '
-    "Args: {\"appointment_id\": id}. Retorna {success, message}.\n"
-    '7. list_my_appointments(patient_id)->list: próximas citas del cliente. '
-    "Args: {\"patient_id\": id}. Retorna [{date, time, service, therapist, status, id}].\n"
-    '8. confirm_pending_appointment(patient_id)->dict: confirma la próxima cita '
-    "pendiente (pending) del cliente, cambiando su estado a confirmed. "
-    "Args: {\"patient_id\": id}. Retorna {success, message}.\n\n"
-    "REGLAS DE ORO:\n"
-    "- NUNCA escribas texto fuera del JSON. Tu mensaje completo debe ser UNA línea JSON.\n"
-    '- Si NO vas a ejecutar herramienta, usa {"reply": "..."} con el mensaje al cliente.\n'
-    "- Ya conoces el número de teléfono del cliente (CLIENTE). NUNCA le preguntes por su "
-    "número: usa find_patient con ese mismo número para identificarlo cuando lo necesites.\n"
-    "- Para agendar: identifica al cliente con find_patient, pregunta servicio y horario "
-    "si no los ha indicado, verifica disponibilidad con check_availability y CONFIRMA "
-    "antes de book_appointment.\n"
-    "- Para modificar/cancelar: lista sus citas con list_my_appointments y confirma antes "
-    "de modificar/cancelar.\n"
-    "- Si falta información, usa {\"reply\": ...} para pedirla amablemente (no inventar).\n"
-    "- Si el cliente pide hablar con un humano, responde {\"reply\": \"HUMAN\"}.\n"
-    "- Sé breve y amable; usa emojis con moderación.\n"
-    "- No expongas IDs internos crudos al cliente salvo que sean necesarios para la gestión.\n"
-    "- Nunca inventes datos; si algo falla, indícalo con amabilidad.\n"
-    "- Para responder sobre días/horas, usa SIEMPRE la FECHA Y HORA ACTUAL del SPA\n"
-    "  (contexto) para calcular hoy/mañana y los días de la semana. Nunca inventes\n"
-    "  fechas ni propongas horarios: primero llama a check_availability y ofrece\n"
-    "  SOLO los horarios que devuelva esa herramienta.\n"
-    "- Cuando el cliente responda CONFIRMO, CONFIRMAR, SI, SÍ o similar (p. ej. tras\n"
-    "  un recordatorio 24h antes), llama a confirm_pending_appointment para cambiar\n"
-    "  su próxima cita pendiente a CONFIRMADA e indícale los detalles.\n"
+    "Eres un asistente virtual de un SPA. Tu nombre es {agent_name}, tono {agent_tone}.\n"
+    "{cliente_context}\n"
+    "{now_context}\n"
+    "OBLIGATORIO: Responde SIEMPRE en ESPAÑOL. Prohibido escribir en inglés.\n"
+    "Tu respuesta al sistema debe ser UNA ÚNICA LÍNEA JSON, exactamente en uno de estos formatos:\n"
+    '1) {"reply": "mensaje corto y amable para el cliente"}\n'
+    '2) {"tool": "find_patient", "args": {"phone": "número"}}\n'
+    '3) {"tool": "list_services", "args": {}}\n'
+    '4) {"tool": "cancel_appointment", "args": {"appointment_id": "id"}}\n'
+    '5) {"tool": "list_my_appointments", "args": {"patient_id": "id"}}\n'
+    '6) {"tool": "check_availability", "args": {"date": "YYYY-MM-DD", "service_id": "id"}}\n'
+    "REGLAS:\n"
+    "- NUNCA expliques pasos, razones, análisis ni planes. Solo el JSON.\n"
+    "- NUNCA preguntes por el teléfono del cliente (ya lo conoces).\n"
+    "- Si no sabes qué hacer, usa {'reply': '¿En qué más puedo ayudarte?'}\n"
+    "- Sé breve (máx 2 líneas).\n"
 )
 
 
@@ -240,6 +206,16 @@ class WhatsAppAgentService:
         if conversation.status == "human":
             logger.info("[WhatsApp Agent] Conversación en modo humano; no se responde.")
             return None
+
+        # Guard previo a la IA: intenciones directas respondidas sin depender
+        # del protocolo JSON (evita respuestas rotas para casos comunes).
+        direct_reply = self._handle_direct_intent(db, tenant_id, text, conversation)
+        if direct_reply:
+            await evolution_client.send_text(settings.instance_name, phone, direct_reply)
+            self._save_message(db, conversation.id, tenant_id, "assistant", direct_reply)
+            conversation.last_message_at = datetime.utcnow()
+            db.commit()
+            return direct_reply
 
         try:
             history = self._build_history(db, conversation.id)
@@ -386,9 +362,627 @@ class WhatsAppAgentService:
 
         history = []
         for m in reversed(messages):
-            if m.role in ("user", "assistant") and m.content:
-                history.append({"role": m.role, "content": m.content})
+            if m.role not in ("user", "assistant") or not m.content:
+                continue
+            # Saltar mensajes assistant contaminados: fallbacks genéricos o
+            # respuestas con prosa larga que contienen {} (razonamiento/IDs).
+            # Esto evita que el modelo aprenda de respuestas previas rotas.
+            if m.role == "assistant":
+                c = m.content.strip()
+                if c.startswith("Lo siento, tuve un problema"):
+                    continue
+                if c.startswith("¡Hola"):
+                    continue
+                # Si contiene { y es larga (>200 chars) es razonamiento/JSON roto
+                if len(c) > 200 and ("{" in c or "}" in c):
+                    continue
+            history.append({"role": m.role, "content": m.content})
         return history
+
+    # ============================================================
+    # Guard previo a la IA (intenciones directas)
+    # ============================================================
+
+    def _handle_direct_intent(
+        self,
+        db: Session,
+        tenant_id: str,
+        text: str,
+        conversation: WhatsAppConversation,
+    ) -> Optional[str]:
+        """
+        Responde directamente (sin IA) a intenciones comunes y evitables:
+        - Pregunta por la lista de servicios ("qué servicios ofrecen").
+        - Pregunta por terapeutas/masajistas.
+        - Respuesta CONFIRMO a un recordatorio (confirmar cita pending).
+        Devuelve None si no aplica (y sigue la IA).
+        """
+        if not text:
+            return None
+
+        t = text.strip().lower()
+
+        # 0a) Saludos: detecta "hola", "buenas", "buenos días/tardes/noches"
+        if re.search(r"\b(hola|buenas?|buenos?\s*(d[ií]as|tardes|noches?)|saludos|qu[eé] tal)\b", t, re.I):
+            return ("\U0001F44B ¡Hola! ¿En qué puedo ayudarte? "
+                    "Puedes pedirme agendar una cita, consultar tus citas "
+                    "o cancelar alguna.")
+
+        # 0aa) Confirmación "sí/ok/dale" de cancelar TODAS tras pregunta del bot
+        if re.search(
+            r"\b(s[ií]|si\s+quiero|dale|ok|confirm[ao])\b", t
+        ) and conversation.patient_id:
+            last_bot = (
+                db.query(WhatsAppMessage)
+                .filter(
+                    WhatsAppMessage.tenant_id == tenant_id,
+                    WhatsAppMessage.conversation_id == conversation.id,
+                    WhatsAppMessage.role == "assistant",
+                    WhatsAppMessage.deleted_at == None,
+                )
+                .order_by(WhatsAppMessage.created_at.desc())
+                .first()
+            )
+            if last_bot and last_bot.content:
+                lb = last_bot.content.lower()
+                if "cancelar todas" in lb or (
+                    "cancelar" in lb and "todas" in lb
+                ):
+                    apts = json.loads(
+                        self._tool_list_appointments(
+                            db, tenant_id, str(conversation.patient_id), conversation
+                        )
+                    )
+                    cancelled = 0
+                    if isinstance(apts, list):
+                        for ap in list(apts):
+                            res = json.loads(
+                                self._tool_cancel_appointment(
+                                    db, tenant_id, ap.get("id")
+                                )
+                            )
+                            if res.get("success"):
+                                cancelled += 1
+                    if cancelled:
+                        return (
+                            f"\u2705 Se cancelaron tus {cancelled} cita(s). "
+                            "\U0001F495 ¿Necesitas algo más?"
+                        )
+                    return "No tenías citas pendientes para cancelar. \U0001F64F"
+
+        # 0) Cancelar una cita: detecta "cancelar/cancela/anular/eliminar + fecha"
+        if re.search(r"\b(cancel|cancela|cancelar|anul|elimin)\w*\b", t) and conversation.patient_id:
+            import re as re_cancel
+            appointments_list = json.loads(
+                self._tool_list_appointments(db, tenant_id, str(conversation.patient_id), conversation)
+            )
+            if not isinstance(appointments_list, list) or not appointments_list:
+                return "No tienes citas agendadas para cancelar. \U0001F60A"
+
+            # --- Cancelar TODAS las citas ---
+            if re_cancel.search(r"\btodas?\b", t):
+                # Si el mensaje incluye confirmación (si/confirmo/ok) o el último
+                # mensaje del bot pidió confirmar, procede a cancelar todo.
+                user_confirms = bool(
+                    re_cancel.search(r"\b(s[ií]|confirmo|confirmar|dale|ok)\b", t)
+                )
+                last_bot_asked = False
+                last_bot = (
+                    db.query(WhatsAppMessage)
+                    .filter(
+                        WhatsAppMessage.tenant_id == tenant_id,
+                        WhatsAppMessage.conversation_id == conversation.id,
+                        WhatsAppMessage.role == "assistant",
+                        WhatsAppMessage.deleted_at == None,
+                    )
+                    .order_by(WhatsAppMessage.created_at.desc())
+                    .first()
+                )
+                if last_bot and last_bot.content:
+                    last_lower = last_bot.content.lower()
+                    last_bot_asked = (
+                        "cancelar" in last_lower and "todas" in last_lower
+                        and "confirm" in last_lower
+                    )
+
+                if user_confirms or last_bot_asked:
+                    cancelled = 0
+                    for ap in list(appointments_list):
+                        result = json.loads(
+                            self._tool_cancel_appointment(db, tenant_id, ap.get("id"))
+                        )
+                        if result.get("success"):
+                            cancelled += 1
+                    if cancelled:
+                        return (
+                            f"\u2705 Se cancelaron TUS {cancelled} cita(s). "
+                            "\U0001F495 ¿Necesitas algo más?"
+                        )
+                    return "No se pudo cancelar ninguna cita. \U0001F64F"
+
+                # Pedir confirmación
+                lines = [f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} ({ap.get('status')})" for ap in appointments_list[:5]]
+                return (
+                    "\u26A0\uFE0F Vas a cancelar TODAS tus citas:\\n" + "\\n".join(lines) +
+                    "\\n\\n¿Confirmas? Responde SI para cancelar todas. \U0001F4AC"
+                )
+
+            # Encontrar la posición de "cancelar" en el texto y buscar fecha
+            # DESPUÉS de esa palabra (no antes, donde podría estar "confirmar").
+            cancel_pos = re_cancel.search(r"\b(cancel|cancela|cancelar|anul|elimin)\w*\b", t).start()
+            text_after = t[cancel_pos:]
+
+            cancel_id = None
+            cancel_msg = None
+            m = re_cancel.search(r"\b(\d{4}-\d{2}-\d{2})\b", text_after)
+            if m:
+                target = m.group(1)
+                for ap in appointments_list:
+                    if ap.get("date") == target:
+                        cancel_id = ap.get("id")
+                        cancel_msg = ap
+                        break
+            if not cancel_id:
+                m = re_cancel.search(r"\bde[l]?\s+(\d{1,2})\b", text_after)
+                if m:
+                    day_num = int(m.group(1))
+                    for ap in appointments_list:
+                        try:
+                            ap_date = datetime.strptime(ap.get("date", ""), "%Y-%m-%d")
+                            if ap_date.day == day_num:
+                                cancel_id = ap.get("id")
+                                cancel_msg = ap
+                                break
+                        except Exception:
+                            continue
+            if cancel_id:
+                result = json.loads(
+                    self._tool_cancel_appointment(db, tenant_id, cancel_id)
+                )
+                if result.get("success"):
+                    return f"\u274C Cita cancelada: {cancel_msg.get('service')} del {cancel_msg.get('date')} a las {cancel_msg.get('time')}."
+                return "No se pudo cancelar la cita. Intenta de nuevo. \U0001F64F"
+            # Mostrar lista de citas para elegir
+            lines = [f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} ({ap.get('status')})" for ap in appointments_list[:5]]
+            return ("Tienes estas citas:\n" + "\n".join(lines) +
+                    "\n\n\u2705 ¿Cuál deseas cancelar? Indica la fecha (ej. 'cancelar la del 10').")
+
+        # 0b) Confirmar una cita: detecta "confirmar/confirmo + fecha"
+        if re.search(r"\b(confirmar|confirmo)\b", t) and conversation.patient_id:
+            try:
+                import re as re_cf
+                apts = json.loads(self._tool_list_appointments(db, tenant_id, str(conversation.patient_id), conversation))
+            except Exception:
+                apts = []
+            if isinstance(apts, list) and apts:
+                pos = re_cf.search(r"\b(confirmar|confirmo)\b", t).start()
+                txt_after = t[pos:]
+                cid = None
+                cmsg = None
+                m = re_cf.search(r"\b(\d{4}-\d{2}-\d{2})\b", txt_after)
+                if m:
+                    for ap in apts:
+                        if ap.get("date") == m.group(1):
+                            cid, cmsg = ap.get("id"), ap
+                            break
+                if not cid:
+                    m = re_cf.search(r"\bde[l]?\s+(\d{1,2})\b", txt_after)
+                    if m:
+                        dn = int(m.group(1))
+                        for ap in apts:
+                            try:
+                                if datetime.strptime(ap.get("date",""), "%Y-%m-%d").day == dn:
+                                    cid, cmsg = ap.get("id"), ap
+                                    break
+                            except:
+                                continue
+                if cid:
+                    try:
+                        from ..schemas.appointment import AppointmentUpdate
+                        upd = appointment_service.update_appointment(db, tenant_id, cid, AppointmentUpdate(estado="confirmed"))
+                        if upd:
+                            return f"\u2705 Cita CONFIRMADA: {cmsg.get('service')} del {cmsg.get('date')} a las {cmsg.get('time')}."
+                    except ValueError as exc:
+                        return f"No se pudo confirmar: {str(exc)}"
+                lines = [f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} ({ap.get('status')})" for ap in apts[:5]]
+                return ("Tienes estas citas:\n" + "\n".join(lines) +
+                        "\n\n\u2705 ¿Cuál deseas confirmar? Indica la fecha (ej. 'confirmar la del 10').")
+            return "No tienes citas pendientes para confirmar. \U0001F60A"
+
+        # 1) Lista de servicios
+        if re.search(
+            r"\b(qu[eé]|cuales|cual[es]?) (servicios|tratamientos|masajes)\b|"
+            r"\b(servicios|tratamientos) (ofrece[ns]?|tiene[ns]?|hay)\b|"
+            r"\bqu[eé] (ofrece[ns]?|tiene[ns]?|vende[ns]?|ofreces?)\b|"
+            r"\bagendar\b(.*\b(cita|citas))?|"
+            r"\buna\s+cita\b|\bquiero\s+una\s+cita\b|\bs[ií]\b",
+            t,
+        ):
+            try:
+                result = json.loads(self._tool_list_services(db, tenant_id) or "[]")
+            except Exception:
+                result = []
+            if not result:
+                return (
+                    "Actualmente no tenemos servicios disponibles. "
+                    "\U0001F495 Llámanos y con gusto te informamos."
+                )
+            lines = [
+                f"\U0001F469\u200D\U0001F3A9 {s.get('name')} "
+                f"({s.get('duration')} min) - ${int(s.get('price') or 0):,}".replace(",", ".")
+                for s in result[:10]
+            ]
+            return (
+                "Estos son los servicios que ofrecemos:\n" + "\n".join(lines) +
+                "\n\n\u2705 ¿Cuál te gustaría reservar?"
+            )
+
+        # 2) Terapeutas / masajistas que atienden hoy
+        if re.search(
+            r"\b(qu[eé]) (terapeutas|masajistas|quien(es)?) (atiende[ns]?|hay|tiene[ns]?)\b|"
+            r"\b(terapeutas|masajistas|quienes atienden)\b",
+            t,
+        ):
+            from ..models.user import User as UserModel
+
+            therapists = (
+                db.query(UserModel)
+                .filter(
+                    UserModel.tenant_id == tenant_id,
+                    UserModel.rol == "therapist",
+                    UserModel.is_active == True,  # noqa: E712
+                    UserModel.deleted_at == None,  # noqa: E711
+                )
+                .all()
+            )
+            if not therapists:
+                return (
+                    "Por el momento no hay terapeutas registrados. "
+                    "\U0001F64F Llámanos y con gusto te atendemos."
+                )
+            names = [f"{usr.nombre} {usr.apellido}".strip() for usr in therapists]
+            return (
+                "Nuestros terapeutas son:\n" + "\n".join(f"- {n}" for n in names) +
+                "\n\n\u2705 ¿Con quién te gustaría agendar?"
+            )
+
+        # 3) Confirmación tras RECORDATORIO (responde CONFIRMO / CONFIRMAR a una
+        #    cita pending; "si" genérico lo gestiona la IA en un agendamiento).
+        if re.search(
+            r"\b(confirmo|confirmar|confirmada?)\b", t
+        ) and conversation.patient_id:
+            resp = json.loads(
+                self._tool_confirm_pending_appointment(
+                    db, tenant_id, str(conversation.patient_id), conversation
+                )
+            )
+            if resp.get("success") is True:
+                return resp.get("message")
+            # Si no hay recordatorio pendiente (booking en curso), caer a IA.
+            return None
+
+        # 4) Consulta de las citas del cliente ("quiero saber si tengo citas",
+        #    "mis citas", "próximas citas").
+        #    NO si pregunta por disponibilidad ("citas disponibles", "horarios").
+        if re.search(
+            r"\b(disponibles?|horarios?|cupo|hay\s+citas)\b|\bagendar\b", t, re.I
+        ):
+            pass  # cae a guard #5 (fecha/hora) o IA
+        elif re.search(
+            r"\b(quiero saber|tengo|mis|consultar|cu[aá]ntas|cuales|pr[oó]ximas?|"
+            r"ver|listar|agendadas|pendientes|m[uú]estrame|mostrar)\b|"
+            r"\b(citas|turnos|reservas|agenda|horarios)\b",
+            t,
+        ) and conversation.patient_id:
+            resp = json.loads(
+                self._tool_list_appointments(
+                    db, tenant_id, str(conversation.patient_id), conversation
+                )
+            )
+            if isinstance(resp, list) and resp:
+                lines = [
+                    f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} "
+                    f"({ap.get('status')})"
+                    for ap in resp[:10]
+                ]
+                return (
+                    f"Tienes {len(resp)} cita(s) agendada(s):\n"
+                    + "\n".join(lines)
+                    + "\n\n¿Quieres modificar o cancelar alguna?"
+                )
+            return (
+                "No tienes citas agendadas por el momento. \U0001F60A "
+                "¿Quieres agendar una?"
+            )
+
+        # 5) Detectar fecha/hora y agendar servicio (flujo completo sin IA).
+        #    VA ANTES que #6 para que "Pa mañana a las 3 de la tarde" no sea
+        #    interceptado por el regex de servicio (que contiene "la" y "de").
+        booking_time = _parse_booking_time(t, _tenant_now(db, tenant_id))
+        if booking_time and (booking_time[1] > 0 or booking_time[2] > 0):
+            cita_date, hour, minute = booking_time
+            time_str = f"{hour:02d}:{minute:02d}"
+
+            # Buscar servicio mencionado en el texto o en el historial
+            matched_svc = _find_service_from_text(db, tenant_id, t)
+            if not matched_svc and conversation.id:
+                matched_svc = _find_service_in_history(db, tenant_id, conversation.id)
+            if not matched_svc:
+                return ("¿Para qué servicio te gustaría agendar la cita? "
+                        "Dime el nombre y lo busco. \U0001F60A")
+
+            avail_result = self._tool_check_availability(
+                db, tenant_id, cita_date, str(matched_svc.id)
+            )
+            try:
+                slots = json.loads(avail_result)
+            except Exception:
+                slots = []
+
+            if isinstance(slots, dict) and "error" in slots:
+                return f"Lo siento, no pude verificar disponibilidad: {slots['error']}"
+
+            matching_slot = None
+            if isinstance(slots, list):
+                for s in slots:
+                    if s.get("time") == time_str:
+                        matching_slot = s
+                        break
+
+            if matching_slot:
+                # Buscar servicio en el texto o historial
+                matched_svc = _find_service_from_text(db, tenant_id, t)
+                if not matched_svc and conversation.id:
+                    matched_svc = _find_service_in_history(db, tenant_id, conversation.id)
+                patient_id = conversation.patient_id
+                if patient_id and matched_svc and matching_slot.get("therapist_id"):
+                    try:
+                        from ..schemas.appointment import AppointmentCreate
+                        cita_dt = datetime.strptime(
+                            f"{cita_date} {time_str}", "%Y-%m-%d %H:%M"
+                        )
+                        data = AppointmentCreate(
+                            patient_id=patient_id,
+                            therapist_id=matching_slot["therapist_id"],
+                            service_id=str(matched_svc.id),
+                            date_time=cita_dt,
+                            estado="pending",
+                        )
+                        appointment = appointment_service.create_appointment(db, tenant_id, data)
+                        return (
+                            f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
+                            f"el {_format_date(appointment.date_time)} a las "
+                            f"{_format_time(appointment.date_time)} con "
+                            f"{matching_slot['therapist']}.\n\n"
+                            "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                        )
+                    except ValueError as exc:
+                        return f"Lo siento, no se pudo agendar: {str(exc)}"
+                return (f"El horario de las {time_str} del {cita_date} est\u00e1 disponible con "
+                        f"{matching_slot['therapist']}. \u2705 "
+                        "Responde CONFIRMAR para agendar tu cita.")
+            elif isinstance(slots, list) and slots:
+                times_list = "\n".join(f"- {s['time']} ({s['therapist']})" for s in slots[:8])
+                return (f"La hora {time_str} no est\u00e1 disponible. "
+                        f"Horarios libres para {cita_date}:\n{times_list}"
+                        "\n\n\u2705 ¿Cuál te gustaría?")
+            else:
+                return (f"Lo siento, no hay disponibilidad para {cita_date}. "
+                        "¿Quieres otro día?")
+
+        # 5b) Día válido pero sin hora -> preguntar hora
+        if booking_time and booking_time[1] == 0 and booking_time[2] == 0:
+            cita_date = booking_time[0]
+            # Nombre legible del día
+            from datetime import datetime as dt_mod
+            try:
+                day_name = dt_mod.strptime(cita_date, "%Y-%m-%d").strftime("%A")
+            except Exception:
+                day_name = cita_date
+            day_map = {"Monday":"lunes","Tuesday":"martes","Wednesday":"miércoles",
+                       "Thursday":"jueves","Friday":"viernes","Saturday":"sábado",
+                       "Sunday":"domingo"}
+            day_name_es = day_map.get(day_name, day_name)
+            return (f"¿A qué hora te gustaría tu cita el {day_name_es}? "
+                    "\U0001F552")
+
+        # 6) Agendar un servicio específico: detecta "quiero una cita para [servicio]"
+        #    "si/sí para [servicio]" o simplemente "limpieza".
+        #    NO debe matchear si el texto tiene intención de fecha/hora.
+        has_time_intent = bool(
+            booking_time  # ya lo capturó guard #5
+            or _parse_only_time(t)  # tiene hora explícita
+            or re.search(
+                r"\b(mañana|manana|hoy|lunes|martes|mi[eé]rcoles|miercoles|"
+                r"jueves|viernes|s[aá]bado|sabado|domingo)\b", t, re.I
+            )
+        )
+        match_g6 = re.search(
+            r"\b(una|la|esa|ese|el|quiero|reservar|agendar|cita|s[ií])\b.*\b(para|de)\b", t
+        )
+        if not match_g6 and not has_time_intent:
+            # Fallback: solo si el texto ACTUAL contiene un servicio conocido
+            if _find_service_from_text(db, tenant_id, t):
+                match_g6 = True
+        if match_g6 and not booking_time:
+            matched = _find_service_from_text(db, tenant_id, t)
+            if not matched and conversation.id:
+                matched = _find_service_in_history(db, tenant_id, conversation.id)
+            if matched:
+                return (f"\u2705 Excelente, has elegido {matched.nombre} "
+                        f"({matched.duracion} min - ${int(matched.precio or 0)}). "
+                        "\U0001F4C5 ¿Qué día y hora te gustaría tu cita?")
+
+        # 7) Elegir un horario de la lista mostrada por el bot (respuesta tipo
+        #    "a las 15:00", "15:00", "las 3 de la tarde" SIN repetir el día).
+        only_time = _parse_only_time(t)
+        if only_time and conversation.id:
+            hour_only, minute_only = only_time
+            time_only_str = f"{hour_only:02d}:{minute_only:02d}"
+            now_local = _tenant_now(db, tenant_id)
+
+            # Recuperar el servicio del historial (guard #5 lo mostró antes)
+            matched_svc = _find_service_from_text(db, tenant_id, t)
+            if not matched_svc:
+                matched_svc = _find_service_in_history(db, tenant_id, conversation.id)
+            if not matched_svc:
+                # El usuario eligió hora pero no repitió el servicio.
+                # Mejor pasar a la IA a que intente interpretar (puede usar
+                # el contexto de la conversación).
+                return None
+
+            # Obtener la fecha del último mensaje del usuario (el mensaje actual
+            # ya se guardó en BD antes de entrar al guard, por eso offset(1)).
+            cita_date = None
+            last_user = (
+                    db.query(WhatsAppMessage)
+                    .filter(
+                        WhatsAppMessage.tenant_id == tenant_id,
+                        WhatsAppMessage.conversation_id == conversation.id,
+                        WhatsAppMessage.role == "user",
+                        WhatsAppMessage.deleted_at == None,
+                    )
+                    .order_by(WhatsAppMessage.created_at.desc())
+                    .offset(1)
+                    .first()
+                )
+            if last_user and last_user.content:
+                parsed = _parse_booking_time(last_user.content, now_local)
+                logger.info(
+                    f"[WhatsApp Agent] Guard #7 date fallback: "
+                    f"last_user='{last_user.content[:80]}' "
+                    f"now_local={now_local.strftime('%Y-%m-%d %H:%M')} "
+                    f"parsed={parsed}"
+                )
+                if parsed:
+                    cita_date = parsed[0]
+            if not cita_date:
+                cita_date = now_local.strftime("%Y-%m-%d")
+                logger.warning(
+                    f"[WhatsApp Agent] Guard #7: usando fecha fallback "
+                    f"cita_date={cita_date} (sin día en historial)"
+                )
+
+            # Verificar disponibilidad en esa fecha/servicio
+            avail_result = self._tool_check_availability(
+                db, tenant_id, cita_date, str(matched_svc.id)
+            )
+            try:
+                slots = json.loads(avail_result)
+            except Exception:
+                slots = []
+
+            if isinstance(slots, dict) and "error" in slots:
+                return f"Lo siento, no pude verificar disponibilidad: {slots['error']}"
+
+            matching_slot = None
+            if isinstance(slots, list):
+                for s in slots:
+                    if s.get("time") == time_only_str:
+                        matching_slot = s
+                        break
+
+            if not matching_slot:
+                if isinstance(slots, list) and slots:
+                    times_list = "\n".join(f"- {s['time']} ({s['therapist']})" for s in slots[:8])
+                    return (f"La hora {time_only_str} no está disponible. "
+                            f"Horarios libres para {cita_date}:\n{times_list}"
+                            "\n\n\u2705 ¿Cuál te gustaría?")
+                return (f"Lo siento, no hay disponibilidad para {cita_date}. "
+                        "¿Quieres otro día?")
+
+            # El cliente ya eligió: crear la cita CONFIRMADA directamente
+            from ..schemas.appointment import AppointmentCreate
+
+            patient_id = conversation.patient_id
+            if not patient_id:
+                return ("Lo siento, no pude identificar tu cuenta. "
+                        "Escribe tu nombre completo para continuar. \U0001F60A")
+
+            # El cliente ya eligió la hora: crear la cita CONFIRMADA directamente
+            try:
+                from ..schemas.appointment import AppointmentCreate
+                cita_dt = datetime.strptime(
+                    f"{cita_date} {time_only_str}", "%Y-%m-%d %H:%M"
+                )
+                data = AppointmentCreate(
+                    patient_id=patient_id,
+                    therapist_id=matching_slot["therapist_id"],
+                    service_id=str(matched_svc.id),
+                    date_time=cita_dt,
+                    estado="pending",
+                )
+                appointment = appointment_service.create_appointment(db, tenant_id, data)
+                return (
+                    f"\u2705 Cita CONFIRMADA: {appointment.service or matched_svc.nombre} "
+                    f"el {_format_date(appointment.date_time)} a las "
+                    f"{_format_time(appointment.date_time)} con "
+                    f"{matching_slot['therapist']}.\n\n"
+                    "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                )
+            except ValueError as exc:
+                return f"Lo siento, no se pudo agendar: {str(exc)}"
+
+        # 8) Confirmar booking tras ver disponibilidad: el usuario responde
+        #    "confirmar/si/si/ok" y el último mensaje del bot contenía un slot
+        #    disponible. Revalida disponibilidad y crea la cita en BD.
+        if re.search(r"\b(confirmar|confirmo|s[ií]|ok|dale|sim|sip)\b", t) and conversation.id:
+            logger.info("[WhatsApp Agent] Guard #8: intentando confirmar booking")
+            cita_details = _extract_booking_from_history(db, tenant_id, conversation.id)
+            if not cita_details:
+                logger.error(
+                    "[WhatsApp Agent] Guard #8: _extract_booking_from_history retornó None. "
+                    f"tenant={tenant_id}, conv={conversation.id}"
+                )
+            if cita_details:
+                cita_date, cita_time, therapist_name, therapist_id, svc = cita_details
+                time_str = f"{cita_time // 60}:{cita_time % 60:02d}"
+                patient_id = conversation.patient_id
+                if patient_id and svc and therapist_id:
+                    # Revalidar disponibilidad antes de agendar
+                    avail_check = self._tool_check_availability(
+                        db, tenant_id, cita_date, str(svc.id)
+                    )
+                    try:
+                        current_slots = json.loads(avail_check)
+                    except Exception:
+                        current_slots = []
+                    still_free = False
+                    if isinstance(current_slots, list):
+                        for slot in current_slots:
+                            if (slot.get("time") == time_str
+                                    and slot.get("therapist_id") == therapist_id):
+                                still_free = True
+                                break
+
+                    if not still_free:
+                        return ("Lo siento, el horario ya no está disponible. "
+                                "\U0001F64F ¿Quieres consultar otra hora o día?")
+
+                    try:
+                        from ..schemas.appointment import AppointmentCreate
+                        cita_dt = datetime.strptime(
+                            f"{cita_date} {time_str}", "%Y-%m-%d %H:%M"
+                        )
+                        data = AppointmentCreate(
+                            patient_id=patient_id,
+                            therapist_id=therapist_id,
+                            service_id=str(svc.id),
+                            date_time=cita_dt,
+                            estado="pending",
+                        )
+                        appointment = appointment_service.create_appointment(db, tenant_id, data)
+                        return (
+                            f"\u2705 Cita CONFIRMADA: {appointment.service or svc.nombre} "
+                            f"el {_format_date(appointment.date_time)} a las "
+                            f"{_format_time(appointment.date_time)} con "
+                            f"{therapist_name}.\n\n"
+                            "\U0001F495 ¡Te esperamos! ¿Necesitas algo más?"
+                        )
+                    except ValueError as exc:
+                        return f"Lo siento, no se pudo agendar: {str(exc)}"
+
+        return None
 
     # ============================================================
     # Loop IA con herramientas (protocolo JSON)
@@ -404,17 +998,23 @@ class WhatsAppAgentService:
     ) -> Optional[str]:
         messages = [{"role": "system", "content": system_prompt}, *history]
 
-        for attempt in range(5):
+        correction_count = 0
+        MAX_CORRECTIONS = 3
+
+        for attempt in range(5 + MAX_CORRECTIONS):
             try:
                 # _call_freellmapi es síncrono (httpx) y bloquea el event loop:
                 # se ejecuta en un hilo para no bloquear el procesamiento de
                 # otros webhooks de WhatsApp.
-                ai_response = await asyncio.to_thread(_call_freellmapi, messages)
+                ai_response = await asyncio.to_thread(
+                    _call_freellmapi, messages, 500, 0.2
+                )
             except ValueError as exc:
                 logger.warning(f"[WhatsApp Agent] FreeLLMAPI error: {exc}")
                 return FALLBACK_REPLY
 
             if not ai_response or not ai_response.strip():
+                logger.warning("[WhatsApp Agent] Respuesta vacía de FreeLLMAPI")
                 return FALLBACK_REPLY
 
             logger.info(
@@ -425,12 +1025,24 @@ class WhatsAppAgentService:
                 decision = self._parse_decision(ai_response)
             except Exception as exc:
                 logger.warning(f"[WhatsApp Agent] _parse_decision error: {exc}")
-                return ai_response.strip()[:4000]
+                # _parse_decision falló: reintentar con corrección, nunca enviar crudo.
+                if correction_count < MAX_CORRECTIONS:
+                    correction_count += 1
+                    messages.append({"role": "assistant", "content": ai_response})
+                    messages.append({"role": "system", "content": _JSON_CORRECTION})
+                    continue
+                return FALLBACK_REPLY
 
-            # Respuesta directa
+            # Toda respuesta que no sea un JSON válido con "reply" o "tool" se
+            # considera inválida y se reintenta con corrección. NUNCA se envía
+            # texto crudo del modelo al cliente ("saludo natural" via guard).
             if not isinstance(decision, dict):
-                reply = ai_response.strip()
-                return reply[:4000] if reply else FALLBACK_REPLY
+                if correction_count < MAX_CORRECTIONS:
+                    correction_count += 1
+                    messages.append({"role": "assistant", "content": ai_response})
+                    messages.append({"role": "system", "content": _JSON_CORRECTION})
+                    continue
+                return FALLBACK_REPLY
 
             if "reply" in decision:
                 raw_reply = decision["reply"]
@@ -443,7 +1055,12 @@ class WhatsAppAgentService:
             args = decision.get("args") if isinstance(decision.get("args"), dict) else {}
             if not isinstance(tool_name, str) or not tool_name:
                 logger.warning(f"[WhatsApp Agent] Respuesta sin tool válida: {ai_response[:200]}")
-                return ai_response.strip()[:4000]
+                if correction_count < MAX_CORRECTIONS:
+                    correction_count += 1
+                    messages.append({"role": "assistant", "content": ai_response})
+                    messages.append({"role": "system", "content": _JSON_CORRECTION})
+                    continue
+                return FALLBACK_REPLY
 
             logger.info(
                 f"[WhatsApp Agent] Herramienta {tool_name} tenant={tenant_id} args={json.dumps(args, ensure_ascii=False)[:200]}"
@@ -455,23 +1072,55 @@ class WhatsAppAgentService:
                 {"role": "system", "content": f"Resultado de la herramienta {tool_name}: {tool_result}"}
             )
 
+        logger.info(f"[WhatsApp Agent] Intento de herramienta agotado ({5+correction_count} intentos), fallback enviado")
         return FALLBACK_REPLY
 
     def _parse_decision(self, ai_response: str) -> Optional[dict]:
         """
-        Extrae el primer objeto JSON {...} de la respuesta. Tolera ruido
-        (markdown, comillas, texto alrededor). Devuelve dict o None.
+        Extrae el ÚLTIMO bloque JSON {...} balanceado de la respuesta.
+        Tolerante a prosa/markdown alrededor. Devuelve dict o None.
         """
         text = ai_response.strip()
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
+        if not text:
             return None
-        try:
-            data = json.loads(match.group(0))
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            logger.warning(f"[WhatsApp Agent] JSON inválido en respuesta: {ai_response[:200]}")
+
+        # Buscar desde el final el último '{' y verificar que su bloque esté
+        # balanceado hasta el '}' más próximo que lo cierre.
+        start = text.rfind("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        data = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        logger.warning(f"[WhatsApp Agent] JSON inválido en respuesta: {candidate[:200]}")
+                        return None
+                    if isinstance(data, dict):
+                        return data
+                    return None
+        # Bloque sin cerrar (truncado)
+        logger.warning(f"[WhatsApp Agent] JSON truncado (sin cierre) en respuesta: {text[start:start+200]}")
         return None
 
     # ============================================================
@@ -613,10 +1262,6 @@ class WhatsAppAgentService:
         if not isinstance(config, dict):
             config = {}
         try:
-            dias_op = config.get("dias_operacion") or [0, 1, 2, 3, 4, 5, 6]
-        except Exception:
-            dias_op = [0, 1, 2, 3, 4, 5, 6]
-        try:
             apt_hora_ini = int(config.get("horario_apertura", "08:00").split(":")[0])
         except Exception:
             apt_hora_ini = 8
@@ -626,10 +1271,6 @@ class WhatsAppAgentService:
             apt_hora_fin = 18
         if apt_hora_fin <= apt_hora_ini:
             apt_hora_fin = apt_hora_ini + 1
-
-        # El tenant no atiende ese día de la semana (0=domingo, 6=sábado)
-        if isinstance(dias_op, (list, tuple)) and day.weekday() not in dias_op:
-            return json.dumps({"error": "El SPA no atiende ese día de la semana"})
 
         # Ahora en la zona horaria del tenant (los slots se guardan naive en la
         # hora local del negocio, por eso no se compara contra UTC).
@@ -686,6 +1327,10 @@ class WhatsAppAgentService:
                 "message": "Faltan datos para agendar (therapist_id, service_id, date_time)",
             })
 
+        estado_arg = (args.get("estado") or "pending").lower()
+        if estado_arg not in ESTADOS_CITA:
+            estado_arg = "pending"
+
         try:
             cita_dt = dt_mod.strptime(date_time_raw, "%Y-%m-%d %H:%M")
             if cita_dt <= _tenant_now(db, tenant_id):
@@ -698,13 +1343,15 @@ class WhatsAppAgentService:
                 therapist_id=therapist_id,
                 service_id=service_id,
                 date_time=cita_dt,
+                estado=estado_arg,
             )
             appointment = appointment_service.create_appointment(db, tenant_id, data)
+            estado_label = "CONFIRMADA" if appointment.estado == "confirmed" else "programada"
             return json.dumps({
                 "success": True,
                 "appointment_id": str(appointment.id),
                 "message": (
-                    f"Cita creada: {appointment.service or 'Servicio'} el "
+                    f"Cita {estado_label}: {appointment.service or 'Servicio'} el "
                     f"{_format_date(appointment.date_time)} a las "
                     f"{_format_time(appointment.date_time)} con "
                     f"{appointment.therapist or 'terapeuta'}"
@@ -821,6 +1468,10 @@ class WhatsAppAgentService:
 
         from ..schemas.appointment import AppointmentUpdate
 
+        # SOLO se confirma una cita pending que tenga un recordatorio enviado
+        # (message_id = "reminder:{id}"): es decir, cuando el cliente responde
+        # CONFIRMO a un recordatorio 24h antes. Nunca confirma una cita recién
+        # agendada (eso se hace con estado="pending" en book_appointment).
         appointment = (
             db.query(Appointment)
             .filter(
@@ -836,6 +1487,20 @@ class WhatsAppAgentService:
             return json.dumps({
                 "success": False,
                 "message": "No tienes citas pendientes por confirmar.",
+            }, ensure_ascii=False)
+
+        has_reminder = (
+            db.query(WhatsAppMessage.id)
+            .filter(
+                WhatsAppMessage.tenant_id == tenant_id,
+                WhatsAppMessage.message_id == f"reminder:{appointment.id}",
+            )
+            .first()
+        )
+        if not has_reminder:
+            return json.dumps({
+                "success": False,
+                "message": "Esta cita no tiene un recordatorio de confirmación pendiente.",
             }, ensure_ascii=False)
 
         try:
@@ -878,6 +1543,367 @@ def _tenant_now(db: Session, tenant_id: str) -> datetime:
     except Exception as exc:
         logger.warning(f"[WhatsApp Agent] _tenant_now error: {exc}")
         return datetime.utcnow()
+
+
+def _find_service_from_text(db: Session, tenant_id: str, t: str) -> Optional[Service]:
+    """Busca un servicio cuyo nombre coincida con palabras del texto `t`."""
+    if not t:
+        return None
+    services = (
+        db.query(Service)
+        .filter(
+            Service.tenant_id == tenant_id,
+            Service.is_active == True,
+            Service.deleted_at == None,
+        )
+        .all()
+    )
+    t_words = set(t.split())
+    for srv in services:
+        srv_words = set(srv.nombre.lower().split())
+        if srv_words & t_words:
+            return srv
+    return None
+
+
+def _find_service_in_history(db: Session, tenant_id: str, conversation_id: str) -> Optional[Service]:
+    """
+    Busca el servicio en los últimos 5 mensajes del asistente. Primer intenta
+    el mensaje con "\u2705 Excelente, has elegido" (guard #5). Si no, busca
+    cualquier mensaje que mencione un nombre de servicio conocido.
+    """
+    msgs = (
+        db.query(WhatsAppMessage)
+        .filter(
+            WhatsAppMessage.tenant_id == tenant_id,
+            WhatsAppMessage.conversation_id == conversation_id,
+            WhatsAppMessage.role == "assistant",
+            WhatsAppMessage.deleted_at == None,
+        )
+        .order_by(WhatsAppMessage.created_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    # 1) Buscar mensaje con "✅ Excelente, has elegido"
+    pref = "\u2705 Excelente, has elegido "
+    for msg in msgs:
+        if msg.content and msg.content.startswith(pref):
+            name = msg.content[len(pref):].split("(")[0].strip()
+            if name:
+                services = (
+                    db.query(Service)
+                    .filter(
+                        Service.tenant_id == tenant_id,
+                        Service.is_active == True,
+                        Service.deleted_at == None,
+                    )
+                    .all()
+                )
+                for srv in services:
+                    if srv.nombre.lower().strip() == name.lower():
+                        return srv
+            break  # Solo un mensaje debería tener el prefijo
+
+    # 2) Fallback: buscar palabras de servicios conocidos en los mensajes
+    services = (
+        db.query(Service)
+        .filter(
+            Service.tenant_id == tenant_id,
+            Service.is_active == True,
+            Service.deleted_at == None,
+        )
+        .all()
+    )
+    srv_names = {srv.nombre.lower().strip(): srv for srv in services}
+    for msg in msgs:
+        if not msg.content:
+            continue
+        content_lower = msg.content.lower()
+        for name, srv in srv_names.items():
+            if name in content_lower:
+                return srv
+    return None
+
+
+def _extract_date_from_history(db: Session, tenant_id: str, conversation_id: str) -> Optional[str]:
+    """
+    Busca en los últimos mensajes assistant del bot una fecha YYYY-MM-DD que
+    haya mostrado (por ejemplo "Horarios libres para 2026-11-10"). El guard #6
+    la escribió así, y el guard #7 la necesita para agendar sin que el cliente
+    repita el día.
+    """
+    msgs = (
+        db.query(WhatsAppMessage)
+        .filter(
+            WhatsAppMessage.tenant_id == tenant_id,
+            WhatsAppMessage.conversation_id == conversation_id,
+            WhatsAppMessage.deleted_at == None,
+        )
+        .order_by(WhatsAppMessage.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    for m in msgs:
+        if not m.content:
+            continue
+        match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", m.content)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _parse_only_time(t: str) -> Optional[tuple]:
+    """
+    Extrae SOLO la hora de un mensaje (sin fecha): "a las 15:00", "15:00",
+    "las 3", "3 de la tarde", "3 pm".
+    Retorna (hour_24, minute) o None.
+    """
+    if not t:
+        return None
+
+    def _period(t: str) -> str:
+        if re.search(r"\bde\s+la\s+(tarde|noche)\b|p\.?\s*m\.?|pm\b", t, re.I):
+            return "pm"
+        if re.search(r"\bde\s+la\s+mañana\b|a\.?\s*m\.?|am\b|madrugada\b", t, re.I):
+            return "am"
+        return ""
+
+    m = re.search(r"(?:a\s+)?las?\s*(\d{1,2})(?::(\d{2}))?", t, re.I)
+    if not m:
+        m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(?:de\s+la\s+(?:mañana|tarde|noche)|a\.?\s*m\.?|p\.?\s*m\.?)\b", t, re.I)
+    if not m:
+        return None
+
+    hour = int(m.group(1))
+    minute = int(m.group(2)) if m.group(2) else 0
+    period = _period(t)
+    if period == "pm" and 1 <= hour <= 11:
+        hour += 12
+    elif period == "am" and hour == 12:
+        hour = 0
+    elif period == "" and 1 <= hour <= 5 and re.search(r"\b(tarde|noche)\b", t, re.I):
+        hour += 12
+
+    return (hour, minute)
+
+
+def _parse_booking_time(t: str, now_local: datetime) -> Optional[tuple]:
+    """
+    Extrae fecha y hora de un mensaje en español.
+    Retorna (date_str, hour_24, minute) o None.
+    Ej: "mañana a las 2 de la tarde" -> (2026-11-10, 14, 0)
+        "hoy a las 11:40" -> (2026-11-09, 11, 40)
+        "mañana a las 2 pm" -> (2026-11-10, 14, 0)
+    """
+    if not t:
+        return None
+
+    # Día: mañana (="tomorrow") / hoy / nombre de día de la semana.
+    # "mañana" en "de la mañana" significa "morning", no "tomorrow", así que
+    # se excluye esa combinación.
+    delta = None
+    if re.search(r"\bmanana\b", t) or (
+        re.search(r"\bmañana\b", t) and not re.search(r"de\s+la\s+mañana", t)
+    ):
+        delta = timedelta(days=1)
+    elif re.search(r"\bhoy\b", t):
+        delta = timedelta()
+    else:
+        # Intentar con día de la semana
+        DAY_MAP = {
+            "lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2,
+            "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6,
+        }
+        for day_name, day_idx in DAY_MAP.items():
+            if re.search(rf"\b{day_name}\b", t, re.I):
+                today_weekday = now_local.weekday()
+                diff = (day_idx - today_weekday) % 7
+                if diff == 0:
+                    diff = 7  # mismo día semana que viene
+                delta = timedelta(days=diff)
+                break
+    if delta is None:
+        return None
+
+    cita_date = (now_local + delta).strftime("%Y-%m-%d")
+
+    # Hora
+    minute = 0
+    hour12 = None
+
+    # Patrón 1: "a las 2", "a las 2:30", "las 2 de la tarde"
+    # Patrón 2: "2 de la tarde", "2:30 pm", "2pm"
+    m = re.search(
+        r"(?:a\s+)?las?\s*(\d{1,2})(?::(\d{2}))?"
+        r"|"
+        r"(\d{1,2})(?::(\d{2}))?\s*(?:de\s+la\s*(mañana|tarde|noche)|"
+        r"a\.?\s*m\.?|p\.?\s*m\.?)",
+        t, re.I,
+    )
+    if not m:
+        return (cita_date, 0, 0)
+
+    if m.group(1) is not None:
+        hour12 = int(m.group(1))
+        minute = int(m.group(2)) if m.group(2) else 0
+    elif m.group(3) is not None:
+        hour12 = int(m.group(3))
+        minute = int(m.group(4)) if m.group(4) else 0
+
+    if hour12 is None:
+        return (cita_date, 0, 0)
+
+    # Determinar AM/PM por palabras
+    periodo = None
+    if re.search(r"\bde\s+la\s+(tarde|noche)\b|p\.?m\.?|pm\b", t, re.I):
+        periodo = "pm"
+    elif re.search(r"\bde\s+la\s+mañana\b|a\.?m\.?|am\b|madrugada\b", t, re.I):
+        periodo = "am"
+
+    if periodo == "pm":
+        if hour12 < 12:
+            hour12 += 12
+    elif periodo == "am":
+        if hour12 == 12:
+            hour12 = 0
+    else:
+        # Sin indicación AM/PM: si es hora pequeña (1-5) y el mensaje contiene
+        # "tarde" o "noche", asumir PM
+        if hour12 <= 5 and re.search(r"\b(tarde|noche)\b", t, re.I):
+            hour12 += 12
+
+    return (cita_date, hour12, minute)
+
+
+def _extract_booking_from_history(
+    db: Session, tenant_id: str, conversation_id: str
+) -> Optional[tuple]:
+    """
+    Busca en los últimos mensajes assistant los datos de una disponibilidad
+    mostrada por guard #5 y extrae (date_str, hora_en_minutos, therapist_name,
+    therapist_id, service_obj) o None.
+    """
+    msgs = (
+        db.query(WhatsAppMessage)
+        .filter(
+            WhatsAppMessage.tenant_id == tenant_id,
+            WhatsAppMessage.conversation_id == conversation_id,
+            WhatsAppMessage.role == "assistant",
+            WhatsAppMessage.deleted_at == None,
+        )
+        .order_by(WhatsAppMessage.created_at.desc())
+        .limit(8)
+        .all()
+    )
+
+    cita_date = None
+    cita_time_str = None
+    therapist_name = None
+    therapist_id = None
+    service_obj = None
+
+    full_text = "\n".join((m.content or "") for m in msgs)
+
+    # 1) Fecha: "Horarios libres para YYYY-MM-DD" o "para YYYY-MM-DD"
+    m = re.search(r"para\s+(\d{4}-\d{2}-\d{2})", full_text)
+    if m:
+        cita_date = m.group(1)
+
+    # 2) Hora + terapeuta del slot match:
+    #    "El horario de las HH:MM del YYYY-MM-DD está disponible con NOMBRE"
+    m = re.search(r"horario de las (\d{2}:\d{2})(?: del (\d{4}-\d{2}-\d{2}))? está disponible con ([^\.]+)", full_text)
+    if m:
+        cita_time_str = m.group(1)
+        therapist_name = m.group(3).strip()
+        if not cita_date and m.group(2):
+            cita_date = m.group(2)
+    else:
+        # Fallback: buscar en "La hora HH:MM no está disponible" (primer slot
+        # de la lista) o en la lista de slots "- HH:MM (nombre)"
+        m = re.search(r"(\d{2}:\d{2})", full_text)
+        if m:
+            cita_time_str = m.group(1)
+        m = re.search(r"-\s+\d{2}:\d{2}\s+\(([^)]+)\)", full_text)
+        if m:
+            therapist_name = m.group(1).strip()
+
+    # 3) therapist_id: buscar en usuarios con rol therapist que coincidan
+    if therapist_name:
+        from ..models.user import User as UserModel
+        therapist = (
+            db.query(UserModel)
+            .filter(
+                UserModel.tenant_id == tenant_id,
+                UserModel.rol == "therapist",
+                UserModel.is_active == True,
+                UserModel.deleted_at == None,
+            )
+            .filter(
+                db.func.concat(UserModel.nombre, " ", UserModel.apellido).ilike(
+                    f"%{therapist_name}%"
+                )
+            )
+            .first()
+        )
+        if therapist:
+            therapist_id = str(therapist.id)
+        # Si no encuentra por nombre exacto, usa el primer therapist del slot
+        if not therapist_id:
+            m = re.search(r"-\s+(\d{2}:\d{2})\s+\(([^)]+)\)", full_text)
+            if m:
+                tn = m.group(2).strip()
+                t = (
+                    db.query(UserModel)
+                    .filter(
+                        UserModel.tenant_id == tenant_id,
+                        UserModel.rol == "therapist",
+                        db.func.concat(UserModel.nombre, " ", UserModel.apellido).ilike(
+                            f"%{tn}%"
+                        ),
+                    )
+                    .first()
+                )
+                if t:
+                    therapist_id = str(t.id)
+
+        # Último recurso: buscar por el primer nombre (split del nombre extraído)
+        if not therapist_id and therapist_name:
+            from ..models.user import User as UserModel
+            first_name = therapist_name.split()[0].strip()
+            if first_name:
+                t = (
+                    db.query(UserModel)
+                    .filter(
+                        UserModel.tenant_id == tenant_id,
+                        UserModel.rol == "therapist",
+                        UserModel.is_active == True,
+                        UserModel.deleted_at == None,
+                        UserModel.nombre.ilike(f"%{first_name}%"),
+                    )
+                    .first()
+                )
+                if t:
+                    therapist_id = str(t.id)
+
+    # 4) Servicio del historial
+    service_obj = _find_service_in_history(db, tenant_id, conversation_id)
+
+    if cita_date and cita_time_str and therapist_id and service_obj:
+        parts = cita_time_str.split(":")
+        hora_min = int(parts[0]) * 60 + int(parts[1])
+        logger.info(
+            f"[WhatsApp Agent] _extract_booking FOUND: date={cita_date} "
+            f"time={cita_time_str} therapist={therapist_name} "
+            f"therapist_id={therapist_id} service={service_obj.nombre if service_obj else None}"
+        )
+        return (cita_date, hora_min, therapist_name or "Terapeuta", therapist_id, service_obj)
+    logger.warning(
+        f"[WhatsApp Agent] _extract_booking FAILED: "
+        f"date={cita_date} time_str={cita_time_str} "
+        f"therapist_id={therapist_id} service_obj={'OK' if service_obj else 'NONE'}"
+    )
+    return None
 
 
 def _format_date(dt: Optional[datetime]) -> str:

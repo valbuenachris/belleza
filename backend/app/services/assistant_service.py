@@ -103,10 +103,19 @@ def _sanitize_provider_text(text: str) -> str:
     return text[:300]
 
 
-def _call_freellmapi(messages: List[Dict[str, str]]) -> str:
+def _call_freellmapi(
+    messages: List[Dict[str, str]],
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+) -> str:
     """
     Llama a FreeLLMAPI con un array de mensajes estilo OpenAI
     (system + historial + pregunta) y devuelve el texto de la respuesta.
+
+    Args:
+        max_tokens: tope de tokens de la respuesta (opcional). El bot de
+            WhatsApp lo usa para evitar respuestas truncadas a mitad del JSON.
+        temperature: parámetro de creatividad (opcional).
 
     Raises:
         ValueError: Con un mensaje seguro y accionable para el usuario.
@@ -120,10 +129,14 @@ def _call_freellmapi(messages: List[Dict[str, str]]) -> str:
     url = f"{settings.FREELLMAPI_BASE_URL.rstrip('/')}/chat/completions"
     model = settings.FREELLMAPI_MODEL or "auto"
     api_key = settings.FREELLMAPI_API_KEY or ""
-    body = {
+    body: dict = {
         "messages": messages,
         "model": model,
     }
+    if max_tokens is not None:
+        body["max_tokens"] = int(max_tokens)
+    if temperature is not None:
+        body["temperature"] = float(temperature)
 
     # Diagnóstico seguro (sin exponer la key completa): permite detectar
     # de un vistazo a qué servicio se está llamando con qué credencial.

@@ -10,6 +10,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import settings as s
@@ -210,18 +211,28 @@ async def run_reminder_check():
 
     db = SessionLocal()
     try:
-        instances = (
-            db.query(WhatsAppSettings)
-            .filter(
-                WhatsAppSettings.status == "open",
-                WhatsAppSettings.deleted_at == None,  # noqa: E711
-                WhatsAppSettings.instance_name != None,  # noqa: E711
-                WhatsAppSettings.agent_enabled == True,  # noqa: E712
+        # Lock de MySQL: solo un worker ejecuta la ronda. GET_LOCK(nombre, 0)
+        # devuelve 1 si adquirió, 0 si no.
+        locked = db.execute(text("SELECT GET_LOCK('wa_reminder', 0)")).scalar()
+        if locked != 1:
+            logger.info("[WhatsApp Reminder] Otro worker ya está ejecutando; se omite esta ronda.")
+            return
+
+        try:
+            instances = (
+                db.query(WhatsAppSettings)
+                .filter(
+                    WhatsAppSettings.status == "open",
+                    WhatsAppSettings.deleted_at == None,  # noqa: E711
+                    WhatsAppSettings.instance_name != None,  # noqa: E711
+                    WhatsAppSettings.agent_enabled == True,  # noqa: E712
+                )
+                .all()
             )
-            .all()
-        )
-        for instance in instances:
-            await _process_instance(db, instance)
+            for instance in instances:
+                await _process_instance(db, instance)
+        finally:
+            db.execute(text("SELECT RELEASE_LOCK('wa_reminder')"))
     except Exception as exc:
         db.rollback()
         logger.error(f"[WhatsApp Reminder] Error en run_reminder_check: {exc}")
