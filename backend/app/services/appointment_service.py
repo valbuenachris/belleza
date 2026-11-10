@@ -4,6 +4,7 @@
 # ============================================================
 
 import logging
+from decimal import Decimal
 from typing import Optional, List
 from datetime import datetime, timedelta
 
@@ -11,10 +12,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 
 from ..models.appointment import Appointment, ESTADOS_CITA
+from ..models.appointment_item import AppointmentItem, AppointmentPayment
 from ..models.patient import Patient
 from ..models.user import User
 from ..models.service import Service
-from ..models.appointment_item import AppointmentPayment
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate
 from ..services import loyalty_service, notification_service
 from ..utils.security import generate_uuid

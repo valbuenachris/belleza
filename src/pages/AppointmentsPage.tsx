@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Appointment, Patient, Service, User } from '../types';
+import { Appointment, AppointmentPayment, Patient, Service, User } from '../types';
 import { setScheduleListener } from '../services/scheduleRequest';
 import { getTenantTimezone } from '../utils/dateTime';
 import {
@@ -1038,14 +1038,23 @@ function PaymentModal({ appointment, onClose, onPaid }: {
   onClose: () => void;
   onPaid: () => void;
 }) {
-  const [monto, setMonto] = useState(appointment.monto_total ?? appointment.precio ?? 0);
+  const saldoInicial = Math.max(0, (appointment.monto_total ?? appointment.precio ?? 0) - (appointment.total_pagado ?? 0));
+  const [monto, setMonto] = useState(saldoInicial);
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [descuento, setDescuento] = useState(0);
   const [observaciones, setObservaciones] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [payments, setPayments] = useState<AppointmentPayment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
 
-  const saldo = (appointment.monto_total ?? appointment.precio ?? 0) - (appointment.total_pagado ?? 0);
+  useEffect(() => {
+    setPaymentsLoading(true);
+    api.getAppointmentPayments(appointment.id)
+      .then((data) => setPayments(data.payments || []))
+      .catch(() => {})
+      .finally(() => setPaymentsLoading(false));
+  }, [appointment.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1071,7 +1080,18 @@ function PaymentModal({ appointment, onClose, onPaid }: {
   };
 
   const inputClass = "w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400";
-  const pendiente = Math.max(0, saldo - monto);
+  const total = appointment.monto_total ?? appointment.precio ?? 0;
+  const pagadoTotal = payments.reduce((s, p) => s + p.monto, 0);
+  const saldoRestante = Math.max(0, total - pagadoTotal - monto);
+
+  const metodoLabel: Record<string, string> = {
+    efectivo: 'Efectivo',
+    tarjeta: 'Tarjeta',
+    transferencia: 'Transferencia',
+    nequi: 'Nequi',
+    daviplata: 'Daviplata',
+    otro: 'Otro',
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1088,26 +1108,55 @@ function PaymentModal({ appointment, onClose, onPaid }: {
           <div className="p-4 bg-red-50 border-b border-red-100 text-sm text-red-600">{error}</div>
         )}
 
+        {/* Resumen financiero */}
         <div className="p-6 space-y-3 bg-stone-50 border-b border-stone-100">
           <div className="flex justify-between text-sm">
             <span className="text-stone-600">Total cita</span>
-            <span className="font-semibold text-stone-800">${(appointment.monto_total ?? appointment.precio ?? 0).toLocaleString('es-CO')}</span>
+            <span className="font-semibold text-stone-800">${total.toLocaleString('es-CO')}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-stone-600">Pagado</span>
-            <span className="font-semibold text-emerald-700">${(appointment.total_pagado ?? 0).toLocaleString('es-CO')}</span>
+            <span className="font-semibold text-emerald-700">${pagadoTotal.toLocaleString('es-CO')}</span>
           </div>
           <div className="flex justify-between text-sm border-t border-stone-200 pt-2">
             <span className="font-medium text-stone-700">Saldo pendiente</span>
-            <span className="font-bold text-amber-700">${saldo.toLocaleString('es-CO')}</span>
+            <span className="font-bold text-amber-700">${Math.max(0, total - pagadoTotal).toLocaleString('es-CO')}</span>
           </div>
         </div>
+
+        {/* Historial de pagos */}
+        {!paymentsLoading && payments.length > 0 && (
+          <div className="px-6 py-4 border-b border-stone-100">
+            <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">Historial de pagos</h3>
+            <div className="space-y-2">
+              {payments.map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-2 border border-stone-100">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-stone-800">${p.monto.toLocaleString('es-CO')}</span>
+                    <span className="text-xs text-stone-400">{metodoLabel[p.metodo_pago] || p.metodo_pago}</span>
+                    {p.descuento > 0 && (
+                      <span className="text-[10px] text-red-500">(-${p.descuento.toLocaleString('es-CO')} dto)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {p.observaciones && (
+                      <span className="text-[10px] text-stone-400 truncate max-w-[100px]">{p.observaciones}</span>
+                    )}
+                    <span className="text-[10px] text-stone-400">
+                      {p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Monto a pagar *</label>
             <input
-              type="number" required min={1} step={100}
+              type="number" required min={1} step={1}
               value={monto}
               onChange={(e) => setMonto(Number(e.target.value))}
               className={inputClass}
@@ -1132,7 +1181,7 @@ function PaymentModal({ appointment, onClose, onPaid }: {
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Descuento</label>
             <input
-              type="number" min={0} step={100}
+              type="number" min={0} step={1}
               value={descuento}
               onChange={(e) => setDescuento(Number(e.target.value))}
               className={inputClass}
@@ -1151,9 +1200,15 @@ function PaymentModal({ appointment, onClose, onPaid }: {
             />
           </div>
 
-          {pendiente > 0 && (
+          {monto > 0 && monto < saldoInicial && (
             <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
-              Queda un saldo pendiente de ${pendiente.toLocaleString('es-CO')} después de este pago (crédito).
+              Queda un saldo pendiente de ${(saldoInicial - monto).toLocaleString('es-CO')} después de este pago (crédito).
+            </div>
+          )}
+
+          {monto > 0 && monto >= saldoInicial && (
+            <div className="p-3 bg-emerald-50 rounded-xl text-xs text-emerald-700">
+              Con este pago la cita queda saldada. ✓
             </div>
           )}
 
