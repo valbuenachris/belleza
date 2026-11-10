@@ -80,6 +80,10 @@ def _now_context(db: Session, tenant_id: str) -> str:
             apertura, cierre = "08:00", "18:00"
             dias = [0, 1, 2, 3, 4, 5, 6]
 
+        direccion = (tenant.direccion or "").strip()
+        telefono = (tenant.telefono or "").strip()
+        email = (tenant.email or "").strip()
+
         return (
             "FECHA Y HORA ACTUAL DEL SPA (en su zona horaria; usa SIEMPRE esto "
             "para calcular 'hoy', 'mañana', días de la semana y horas):\n"
@@ -88,6 +92,13 @@ def _now_context(db: Session, tenant_id: str) -> str:
             f"- Horario de atención: {apertura} a {cierre}\n"
             f"- Días de operación (0=domingo, 6=sábado): {dias}\n"
             "Para 'mañana' suma 1 día al día actual con ESTA fecha.\n"
+            "DATOS DEL SPA (usa SIEMPRE estos datos exactos para responder "
+            "preguntas sobre ubicación/dirección, teléfono o correo):\n"
+            f"- Dirección: {direccion if direccion else '(no configurada)'}\n"
+            f"- Teléfono: {telefono if telefono else '(no configurado)'}\n"
+            f"- Correo: {email if email else '(no configurado)'}\n"
+            "Si te preguntan dónde están ubicados, responde SIEMPRE con la "
+            "dirección anterior exactamente como está escrita.\n"
         )
     except Exception as exc:
         logger.warning(f"[WhatsApp Agent] _now_context error: {exc}")
@@ -420,6 +431,32 @@ class WhatsAppAgentService:
             return ("\U0001F44B ¡Hola! ¿En qué puedo ayudarte? "
                     "Puedes pedirme agendar una cita, consultar tus citas "
                     "o cancelar alguna.")
+
+        # 0ab) Ubicación / dirección del SPA
+        if re.search(
+            r"(d[oó]nde\s+(est[áa]n|est[áa]|quedan|queda|ubicad)|"
+            r"c[oó]mo\s+llego|en\s+qu[eé]\s+direcci[oó]n|"
+            r"ubicaci[oó]n|direcci[oó]n\b|qu[eé]\s+direcci[oó]n|"
+            r"(cual|cu[aá]l)\s+es\s+su\s+direcci[oó]n)",
+            t, re.I,
+        ):
+            from ..models.tenant import Tenant
+            tenant_row = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            direccion = (tenant_row.direccion or "").strip() if tenant_row else ""
+            telefono = (tenant_row.telefono or "").strip() if tenant_row else ""
+            if direccion:
+                reply = (
+                    "\U0001F4CD Nos encontramos en: "
+                    f"{direccion}."
+                )
+                if telefono:
+                    reply += f"\n\n\U0001F4DE Teléfono: {telefono}."
+                return reply
+            return (
+                "Nos encontramos en el SPA. "
+                "\U0001F4CD Si necesitas la dirección exacta, "
+                "comunícate con nosotros y te la enviamos."
+            )
 
         # 0aa) Confirmación "sí/ok/dale" de cancelar TODAS tras pregunta del bot
         if re.search(
