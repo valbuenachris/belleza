@@ -510,7 +510,7 @@ export interface WalletShareLink {
   expires_at: string | null;
 }
 
-export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant' | 'whatsapp';
+export type Page = 'dashboard' | 'tenants' | 'users' | 'appointments' | 'patients' | 'services' | 'settings' | 'reports' | 'docs' | 'assistant' | 'whatsapp' | 'payments';
 
 // ============================================================
 // WhatsApp / Evolution API

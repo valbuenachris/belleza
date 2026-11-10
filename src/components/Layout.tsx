@@ -10,7 +10,7 @@ import { requestPatientFicha } from '../services/patientActions';
 import NotificationBell from './NotificationBell';
 import {
   LayoutDashboard, Building2, Users, Calendar, UserCheck,
-  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Search, BookOpen, Tag, BarChart, Bot, MessageCircle
+  Settings, LogOut, Menu, X, Sparkles, ChevronRight, Search, BookOpen, Tag, BarChart, Bot, MessageCircle, DollarSign
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -25,6 +25,7 @@ const navItems: { id: Page; label: string; icon: React.ReactNode; roles: string[
   { id: 'users', label: 'Usuarios', icon: <Users size={20} />, roles: ['admin', 'manager'] },
   { id: 'services', label: 'Servicios', icon: <Tag size={20} />, roles: ['admin', 'manager'] },
   { id: 'appointments', label: 'Citas', icon: <Calendar size={20} />, roles: ['admin', 'manager', 'receptionist', 'therapist'] },
+  { id: 'payments', label: 'Pagos', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'receptionist'] },
   { id: 'reports', label: 'Reportes', icon: <BarChart size={20} />, roles: ['admin', 'manager'] },
   { id: 'assistant', label: 'Asistente IA', icon: <Bot size={20} />, roles: ['admin', 'manager'] },
   { id: 'whatsapp', label: 'WhatsApp', icon: <MessageCircle size={20} />, roles: ['admin', 'manager'] },
