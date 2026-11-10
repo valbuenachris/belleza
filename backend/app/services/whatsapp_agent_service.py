@@ -535,6 +535,40 @@ class WhatsAppAgentService:
                                 break
                         except Exception:
                             continue
+            # Buscar por hora: "de las 9", "a las 9", "las 9", "9 de la mañana"
+            if not cancel_id:
+                m_hora = re_cancel.search(
+                    r"(?:de\s+las|a\s+las|las)\s+(\d{1,2})(?:\s*:\s*(\d{2}))?"
+                    r"(?:\s*de\s+la\s+(mañana|tarde|noche))?",
+                    text_after, re.I
+                )
+                if m_hora:
+                    hour = int(m_hora.group(1))
+                    minute = int(m_hora.group(2)) if m_hora.group(2) else 0
+                    # Si no se especifica minuto y hay ":00" o "de la mañana", minuto=0
+                    # Buscar en todas las citas (no solo por fecha) y dar prioridad
+                    # a las que coincidan exactamente con la hora
+                    matched_aps = []
+                    for ap in appointments_list:
+                        ap_time = ap.get("time", "")  # "HH:MM"
+                        if ":" in ap_time:
+                            try:
+                                ap_h = int(ap_time.split(":")[0])
+                                ap_m = int(ap_time.split(":")[1])
+                                if ap_h == hour and ap_m == minute:
+                                    matched_aps.append(ap)
+                                elif ap_h == hour and minute == 0 and ap_m == 0:
+                                    matched_aps.append(ap)
+                            except Exception:
+                                continue
+                    if len(matched_aps) == 1:
+                        cancel_id = matched_aps[0].get("id")
+                        cancel_msg = matched_aps[0]
+                    elif len(matched_aps) > 1:
+                        # Misma hora en varios días: mostrar lista acotada
+                        lines = [f"- {ap.get('service')} el {ap.get('date')} a las {ap.get('time')} ({ap.get('status')})" for ap in matched_aps[:5]]
+                        return (f"Hay varias citas a las {hour:02d}:{minute:02d}:\n" + "\n".join(lines) +
+                                "\n\n\u2705 ¿Cuál deseas cancelar? Indica la fecha (ej. 'cancelar la del 10').")
             if cancel_id:
                 result = json.loads(
                     self._tool_cancel_appointment(db, tenant_id, cancel_id)
