@@ -465,17 +465,23 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
     # 'today' en la zona horaria del tenant (las citas se guardan naive en hora
     # local del negocio). Sin esto, "hoy" en UTC no coincide con las citas del día.
     from ..models.tenant import Tenant as TenantModel
+    from ..models.appointment_item import AppointmentPayment
     from zoneinfo import ZoneInfo
 
     tenant_row = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
     tz_name = (tenant_row.timezone if tenant_row else None) or "America/Bogota"
     try:
-        now_local = datetime.now(ZoneInfo(tz_name))
+        tz = ZoneInfo(tz_name)
+        now_local = datetime.now(tz)
     except Exception:
         now_local = datetime.utcnow()
 
-    today = now_local.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
+    today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
+
+    # Límites UTC para consultar created_at (payments se guardan en UTC)
+    hoy_utc = today.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    maniana_utc = tomorrow.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
     citas_hoy = db.query(Appointment).filter(
         Appointment.tenant_id == tenant_id,
@@ -486,15 +492,20 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
 
     total_citas_hoy = len(citas_hoy)
 
-    # Ingresos: suma del precio efectivo de las citas hoy
-    total_ingresos_hoy = 0
-    for apt in citas_hoy:
-        if apt.estado == "cancelled":
-            continue
-        usar = apt.total_pagado or apt.monto_total or apt.precio
-        if usar is None and apt.service_rel and apt.service_rel.precio is not None:
-            usar = apt.service_rel.precio
-        total_ingresos_hoy += float(usar or 0)
+    # Ingresos de HOY: suma de pagos registrados hoy en la zona del tenant,
+    # consultando AppointmentPayment.created_at (UTC) convertido a tenant.
+    pagos_hoy = (
+        db.query(func.coalesce(func.sum(AppointmentPayment.monto), 0))
+        .filter(
+            AppointmentPayment.tenant_id == tenant_id,
+            AppointmentPayment.is_active == True,
+            AppointmentPayment.deleted_at == None,
+            AppointmentPayment.created_at >= hoy_utc,
+            AppointmentPayment.created_at < maniana_utc,
+        )
+        .scalar()
+    )
+    total_ingresos_hoy = float(pagos_hoy or 0)
 
     pendientes = db.query(func.count(Appointment.id)).filter(
         Appointment.tenant_id == tenant_id,

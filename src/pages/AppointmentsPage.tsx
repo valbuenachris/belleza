@@ -497,6 +497,7 @@ export default function AppointmentsPage() {
       {showPaymentModal && paymentAppointment && (
         <PaymentModal
           appointment={paymentAppointment}
+          timezone={tz}
           onClose={() => { setShowPaymentModal(false); setPaymentAppointment(null); }}
           onPaid={() => {
             setShowPaymentModal(false);
@@ -1033,10 +1034,11 @@ function CreateAppointmentModal({ initialDate, initialPatientId, onClose, onCrea
 // ============================================================
 // Modal de Pago (Registrar pago)
 // ============================================================
-function PaymentModal({ appointment, onClose, onPaid }: {
+function PaymentModal({ appointment, onClose, onPaid, timezone }: {
   appointment: Appointment;
   onClose: () => void;
   onPaid: () => void;
+  timezone: string;
 }) {
   const saldoInicial = Math.max(0, (appointment.monto_total ?? appointment.precio ?? 0) - (appointment.total_pagado ?? 0));
   const [monto, setMonto] = useState(saldoInicial);
@@ -1143,7 +1145,7 @@ function PaymentModal({ appointment, onClose, onPaid }: {
                       <span className="text-[10px] text-stone-400 truncate max-w-[100px]">{p.observaciones}</span>
                     )}
                     <span className="text-[10px] text-stone-400">
-                      {p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO', { timeZone: timezone, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
                 </div>
