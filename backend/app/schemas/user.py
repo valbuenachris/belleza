@@ -42,10 +42,19 @@ class UserBase(BaseModel):
 # Schema para crear un nuevo usuario
 # ============================================================
 
+ROLES_VALIDOS = [
+    "admin", "manager", "receptionist", "auxiliar", "cajero",
+    "therapist", "masajista", "facialista", "esteticista", "cosmetologa",
+    "depiladora", "estilista", "peluquera", "colorista", "peinadora",
+    "barbero", "manicurista", "pedicurista", "cejista", "pestañista",
+    "maquilladora", "nutriologa", "acupunturista",
+]
+
+
 class UserCreate(UserBase):
     """Datos necesarios para crear un nuevo usuario."""
     password: str = Field(..., min_length=8, max_length=128, description="Contraseña")
-    rol: str = Field(..., description="Rol: admin, manager, receptionist, therapist")
+    rol: str = Field(..., description="Rol del personal del centro de estética")
     tenant_id: Optional[str] = Field(None, description="ID del tenant")
     
     @field_validator("password")
@@ -59,9 +68,8 @@ class UserCreate(UserBase):
     @field_validator("rol")
     @classmethod
     def validar_rol(cls, v: str) -> str:
-        roles_validos = ["admin", "manager", "receptionist", "therapist"]
-        if v.lower() not in roles_validos:
-            raise ValueError(f"Rol inválido. Opciones: {', '.join(roles_validos)}")
+        if v.lower() not in ROLES_VALIDOS:
+            raise ValueError(f"Rol inválido. Opciones: {', '.join(ROLES_VALIDOS)}")
         return v.lower()
 
 
@@ -83,9 +91,8 @@ class UserUpdate(BaseModel):
     @classmethod
     def validar_rol(cls, v: Optional[str]) -> Optional[str]:
         if v:
-            roles_validos = ["admin", "manager", "receptionist", "therapist"]
-            if v.lower() not in roles_validos:
-                raise ValueError(f"Rol inválido. Opciones: {', '.join(roles_validos)}")
+            if v.lower() not in ROLES_VALIDOS:
+                raise ValueError(f"Rol inválido. Opciones: {', '.join(ROLES_VALIDOS)}")
             return v.lower()
         return v
 

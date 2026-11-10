@@ -11,7 +11,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
-import { TenantStats, Appointment, Page, ScanLoyaltyResult } from '../types';
+import { TenantStats, Appointment, Page, ScanLoyaltyResult, PRACTITIONER_ROLES } from '../types';
 
 const statusLabels: Record<string, string> = {
   pending: 'Pendiente',
@@ -300,7 +300,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         setStats(statsData);
         setRecentAppointments((apts.appointments || []).slice(0, 5));
         setServicesCount(servicesRes.services?.length ?? 0);
-        setTherapistsCount((usersRes ?? []).filter((u) => u.rol === 'therapist' && u.activo).length);
+        setTherapistsCount((usersRes ?? []).filter((u) => PRACTITIONER_ROLES.includes(u.rol) && u.activo).length);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Error al cargar el dashboard');
       } finally {

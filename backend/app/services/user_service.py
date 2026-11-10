@@ -16,8 +16,56 @@ from ..utils.security import generate_uuid
 
 logger = logging.getLogger(__name__)
 
-# Whitelist de roles asignables a usuarios de un tenant
-ROLES_PERMITIDOS = ("admin", "manager", "receptionist", "therapist")
+# Whitelist de roles asignables a usuarios de un tenant (centro de estética).
+ROLES_PERMITIDOS = (
+    # Dirección y operación
+    "admin",
+    "manager",
+    "receptionist",
+    "auxiliar",
+    "cajero",
+    # Profesionales que prestan servicios directos
+    "therapist",       # terapeuta corporal / masajista
+    "masajista",
+    "facialista",
+    "esteticista",
+    "cosmetologa",
+    "depiladora",
+    "estilista",       # corte y peinado
+    "peluquera",
+    "colorista",       # tintes / colorimetría
+    "peinadora",
+    "barbero",
+    "manicurista",
+    "pedicurista",
+    "cejista",         # microblading / diseño de cejas
+    "pestañista",
+    "maquilladora",
+    "nutriologa",
+    "acupunturista",
+)
+
+# Roles que prestan servicios directos (se asignan a citas y disponen agenda).
+ROLES_PRACTICANTES = (
+    "therapist",
+    "masajista",
+    "facialista",
+    "esteticista",
+    "cosmetologa",
+    "depiladora",
+    "estilista",
+    "peluquera",
+    "colorista",
+    "peinadora",
+    "barbero",
+    "manicurista",
+    "pedicurista",
+    "cejista",
+    "pestañista",
+    "maquilladora",
+    "nutriologa",
+    "acupunturista",
+)
 
 
 # ============================================================

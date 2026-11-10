@@ -62,7 +62,11 @@ export interface User {
   email: string;
   nombre: string;
   apellido: string;
-  rol: 'superadmin' | 'admin' | 'manager' | 'receptionist' | 'therapist';
+  rol: 'superadmin' | 'admin' | 'manager' | 'receptionist' | 'therapist'
+    | 'masajista' | 'facialista' | 'esteticista' | 'cosmetologa'
+    | 'depiladora' | 'estilista' | 'peluquera' | 'colorista' | 'peinadora'
+    | 'barbero' | 'manicurista' | 'pedicurista' | 'cejista' | 'pestañista'
+    | 'maquilladora' | 'nutriologa' | 'acupunturista' | 'auxiliar' | 'cajero';
   activo: boolean;
   ultimo_acceso: string | null;
   telefono: string | null;
@@ -70,6 +74,13 @@ export interface User {
   email_verificado: boolean;
   created_at: string;
 }
+
+export const PRACTITIONER_ROLES = [
+  'therapist', 'masajista', 'facialista', 'esteticista', 'cosmetologa',
+  'depiladora', 'estilista', 'peluquera', 'colorista', 'peinadora',
+  'barbero', 'manicurista', 'pedicurista', 'cejista', 'pestañista',
+  'maquilladora', 'nutriologa', 'acupunturista',
+];
 
 export interface UserCreate {
   username: string;

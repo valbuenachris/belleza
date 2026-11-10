@@ -82,12 +82,14 @@ def _check_overlap(
 
 def resolve_therapist(db: Session, tenant_id: str, therapist_id: str, therapist_name: str) -> str:
     """Devuelve el therapist_id a partir del id o, si no viene, del nombre."""
+    from ..services.user_service import ROLES_PRACTICANTES
+
     if therapist_id:
         user = db.query(User).filter(
             User.id == therapist_id,
             User.tenant_id == tenant_id,
             User.deleted_at == None,
-            User.rol == "therapist",
+            User.rol.in_(ROLES_PRACTICANTES),
         ).first()
         if not user:
             raise ValueError("Terapeuta no válido para este SPA")
@@ -97,7 +99,7 @@ def resolve_therapist(db: Session, tenant_id: str, therapist_id: str, therapist_
         name_parts = therapist_name.strip().lower().split()
         user = db.query(User).filter(
             User.tenant_id == tenant_id,
-            User.rol == "therapist",
+            User.rol.in_(ROLES_PRACTICANTES),
             User.deleted_at == None,
         ).filter(
             or_(*[User.nombre.ilike(f"%{p}%") for p in name_parts])

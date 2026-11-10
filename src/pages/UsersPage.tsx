@@ -18,6 +18,25 @@ const roleLabels: Record<string, string> = {
   manager: 'Gerente',
   receptionist: 'Recepcionista',
   therapist: 'Terapeuta',
+  masajista: 'Masajista',
+  facialista: 'Facialista',
+  esteticista: 'Esteticista',
+  cosmetologa: 'Cosmetóloga',
+  depiladora: 'Depiladora',
+  estilista: 'Estilista',
+  peluquera: 'Peluquera',
+  colorista: 'Colorista',
+  peinadora: 'Peinadora',
+  barbero: 'Barbero',
+  manicurista: 'Manicurista',
+  pedicurista: 'Pedicurista',
+  cejista: 'Especialista de Cejas',
+  pestañista: 'Especialista de Pestañas',
+  maquilladora: 'Maquilladora',
+  nutriologa: 'Nutrióloga',
+  acupunturista: 'Acupunturista',
+  auxiliar: 'Auxiliar',
+  cajero: 'Cajero',
 };
 
 const roleColors: Record<string, string> = {
@@ -25,7 +44,31 @@ const roleColors: Record<string, string> = {
   manager: 'bg-blue-50 text-blue-700',
   receptionist: 'bg-amber-50 text-amber-700',
   therapist: 'bg-violet-50 text-violet-700',
+  masajista: 'bg-violet-50 text-violet-700',
+  facialista: 'bg-rose-50 text-rose-700',
+  esteticista: 'bg-rose-50 text-rose-700',
+  cosmetologa: 'bg-rose-50 text-rose-700',
+  depiladora: 'bg-rose-50 text-rose-700',
+  estilista: 'bg-cyan-50 text-cyan-700',
+  peluquera: 'bg-cyan-50 text-cyan-700',
+  colorista: 'bg-cyan-50 text-cyan-700',
+  peinadora: 'bg-cyan-50 text-cyan-700',
+  barbero: 'bg-cyan-50 text-cyan-700',
+  manicurista: 'bg-orange-50 text-orange-700',
+  pedicurista: 'bg-orange-50 text-orange-700',
+  cejista: 'bg-orange-50 text-orange-700',
+  pestañista: 'bg-orange-50 text-orange-700',
+  maquilladora: 'bg-pink-50 text-pink-700',
+  nutriologa: 'bg-pink-50 text-pink-700',
+  acupunturista: 'bg-pink-50 text-pink-700',
+  auxiliar: 'bg-stone-50 text-stone-600',
+  cajero: 'bg-stone-50 text-stone-600',
 };
+
+const ROLE_OPTIONS = Object.keys(roleLabels).map((key) => ({
+  value: key,
+  label: roleLabels[key],
+}));
 
 export default function UsersPage() {
   const { user: currentUser, tenant } = useAuth();
@@ -118,11 +161,7 @@ export default function UsersPage() {
           onChange={(e) => setFilterRole(e.target.value)}
           className="px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
         >
-          <option value="all">Todos los roles</option>
-          <option value="admin">Administrador</option>
-          <option value="manager">Gerente</option>
-          <option value="receptionist">Recepcionista</option>
-          <option value="therapist">Terapeuta</option>
+          <option value="all">Todos los roles</option>{ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
         </select>
       </div>
 
@@ -357,10 +396,7 @@ function CreateUserModal({ onClose, onCreated }: {
                 onChange={(e) => setFormData({ ...formData, rol: e.target.value as TenantRole })}
                 className={inputClass}
               >
-                <option value="admin">Administrador</option>
-                <option value="manager">Gerente</option>
-                <option value="receptionist">Recepcionista</option>
-                <option value="therapist">Terapeuta</option>
+                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
           </div>
@@ -472,10 +508,7 @@ function EditUserModal({ user, onClose, onUpdated }: {
                 onChange={(e) => setFormData({ ...formData, rol: e.target.value as TenantRole })}
                 className={inputClass}
               >
-                <option value="admin">Administrador</option>
-                <option value="manager">Gerente</option>
-                <option value="receptionist">Recepcionista</option>
-                <option value="therapist">Terapeuta</option>
+                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
             <div>

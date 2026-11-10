@@ -14,6 +14,7 @@ from ..models.service import Service
 from ..models.user import User
 from ..models.whatsapp import WhatsAppConversation, WhatsAppMessage, WhatsAppSettings
 from ..services import appointment_service
+from ..services.user_service import ROLES_PRACTICANTES
 from ..services.assistant_service import _call_freellmapi
 from ..services.whatsapp_service import evolution_client
 from ..utils.security import generate_uuid
@@ -759,7 +760,7 @@ class WhatsAppAgentService:
                 db.query(UserModel)
                 .filter(
                     UserModel.tenant_id == tenant_id,
-                    UserModel.rol == "therapist",
+                    UserModel.rol.in_(ROLES_PRACTICANTES),
                     UserModel.is_active == True,  # noqa: E712
                     UserModel.deleted_at == None,  # noqa: E711
                 )
@@ -1551,7 +1552,7 @@ f"\U0001F495 ¡Te esperamos!{extra}"
 
         therapists = db.query(User).filter(
             User.tenant_id == tenant_id,
-            User.rol == "therapist",
+            User.rol.in_(ROLES_PRACTICANTES),
             User.is_active == True,
             User.deleted_at == None,
         ).all()
@@ -2376,7 +2377,7 @@ def _extract_booking_from_history(
             db.query(UserModel)
             .filter(
                 UserModel.tenant_id == tenant_id,
-                UserModel.rol == "therapist",
+                UserModel.rol.in_(ROLES_PRACTICANTES),
                 UserModel.is_active == True,
                 UserModel.deleted_at == None,
             )
@@ -2398,7 +2399,7 @@ def _extract_booking_from_history(
                     db.query(UserModel)
                     .filter(
                         UserModel.tenant_id == tenant_id,
-                        UserModel.rol == "therapist",
+                        UserModel.rol.in_(ROLES_PRACTICANTES),
                         db.func.concat(UserModel.nombre, " ", UserModel.apellido).ilike(
                             f"%{tn}%"
                         ),
@@ -2417,7 +2418,7 @@ def _extract_booking_from_history(
                     db.query(UserModel)
                     .filter(
                         UserModel.tenant_id == tenant_id,
-                        UserModel.rol == "therapist",
+                        UserModel.rol.in_(ROLES_PRACTICANTES),
                         UserModel.is_active == True,
                         UserModel.deleted_at == None,
                         UserModel.nombre.ilike(f"%{first_name}%"),

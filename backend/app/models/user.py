@@ -82,7 +82,7 @@ class User(Base, TenantBaseModel):
     rol: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Rol del usuario: superadmin, admin, manager, receptionist, therapist",
+        comment="Rol del usuario del centro de estética",
     )
     email_verificado: Mapped[bool] = mapped_column(
         Boolean,

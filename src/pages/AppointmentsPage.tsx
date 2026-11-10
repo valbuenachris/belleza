@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Appointment, AppointmentPayment, Patient, Service, User } from '../types';
+import { Appointment, AppointmentPayment, Patient, Service, User, PRACTITIONER_ROLES } from '../types';
 import { setScheduleListener } from '../services/scheduleRequest';
 import { getTenantTimezone } from '../utils/dateTime';
 import {
@@ -828,7 +828,7 @@ function CreateAppointmentModal({ initialDate, initialPatientId, onClose, onCrea
         ]);
         setPatients(p.patients || []);
         setServices((s.services || []).filter(sv => sv.activo));
-        setTherapists((u || []).filter(t => t.rol === 'therapist' && t.activo));
+        setTherapists((u || []).filter(t => PRACTITIONER_ROLES.includes(t.rol) && t.activo));
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Error al cargar datos para la cita');
       } finally {
