@@ -549,6 +549,17 @@ class WhatsAppAgentService:
 
         # 0b) Confirmar una cita: detecta "confirmar/confirmo + fecha"
         if re.search(r"\b(confirmar|confirmo)\b", t) and conversation.patient_id:
+            # Si el usuario solo dice "Confirmo" sin fecha, confirmar la cita
+            # del recordatorio más reciente
+            if not re.search(r"\b(\d{4}-\d{2}-\d{2}|de[l]?\s+\d{1,2})\b", t):
+                resp = json.loads(
+                    self._tool_confirm_pending_appointment(
+                        db, tenant_id, str(conversation.patient_id), conversation
+                    )
+                )
+                if resp.get("success") is True:
+                    return resp.get("message")
+                # Si falla (sin recordatorio), seguir al listado normal
             try:
                 import re as re_cf
                 apts = json.loads(self._tool_list_appointments(db, tenant_id, str(conversation.patient_id), conversation))
@@ -1646,42 +1657,48 @@ f"\U0001F495 ¡Te esperamos!{extra}"
 
         from ..schemas.appointment import AppointmentUpdate
 
-        # SOLO se confirma una cita pending que tenga un recordatorio enviado
-        # (message_id = "reminder:{id}"): es decir, cuando el cliente responde
-        # CONFIRMO a un recordatorio 24h antes. Nunca confirma una cita recién
-        # agendada (eso se hace con estado="pending" en book_appointment).
-        appointment = (
-            db.query(Appointment)
+        # Buscar el ÚLTIMO recordatorio enviado en esta conversación
+        last_reminder = (
+            db.query(WhatsAppMessage)
             .filter(
-                Appointment.tenant_id == tenant_id,
-                Appointment.patient_id == pid,
-                Appointment.deleted_at == None,
-                Appointment.estado == "pending",
+                WhatsAppMessage.tenant_id == tenant_id,
+                WhatsAppMessage.conversation_id == conversation.id,
+                WhatsAppMessage.role == "assistant",
+                WhatsAppMessage.message_id.startswith("reminder_"),
+                WhatsAppMessage.deleted_at == None,
             )
-            .order_by(Appointment.date_time.asc())
+            .order_by(WhatsAppMessage.created_at.desc())
             .first()
         )
+        if not last_reminder:
+            return json.dumps({
+                "success": False,
+                "message": "No tienes recordatorios de confirmación pendientes.",
+            }, ensure_ascii=False)
+
+        # Extraer appointment_id del message_id: "reminder_eve:{id}" o "reminder_2h:{id}"
+        mid = last_reminder.message_id or ""
+        apt_id = mid.split(":", 1)[-1] if ":" in mid else ""
+        if not apt_id:
+            return json.dumps({
+                "success": False,
+                "message": "No se pudo identificar la cita del recordatorio.",
+            }, ensure_ascii=False)
+
+        appointment = db.query(Appointment).filter(
+            Appointment.id == apt_id,
+            Appointment.tenant_id == tenant_id,
+            Appointment.deleted_at == None,
+        ).first()
         if not appointment:
             return json.dumps({
                 "success": False,
-                "message": "No tienes citas pendientes por confirmar.",
+                "message": "La cita del recordatorio ya no existe.",
             }, ensure_ascii=False)
-
-        has_reminder = (
-            db.query(WhatsAppMessage.id)
-            .filter(
-                WhatsAppMessage.tenant_id == tenant_id,
-                WhatsAppMessage.message_id.in_([
-                    f"reminder_eve:{appointment.id}",
-                    f"reminder_2h:{appointment.id}",
-                ]),
-            )
-            .first()
-        )
-        if not has_reminder:
+        if appointment.estado != "pending":
             return json.dumps({
                 "success": False,
-                "message": "Esta cita no tiene un recordatorio de confirmación pendiente.",
+                "message": f"Esta cita ya está {appointment.estado}.",
             }, ensure_ascii=False)
 
         try:
@@ -1696,7 +1713,7 @@ f"\U0001F495 ¡Te esperamos!{extra}"
             return json.dumps({
                 "success": True,
                 "message": (
-                    f"Cita CONFIRMADA: {updated.service or 'Servicio'} el "
+                    f"\u2705 Cita CONFIRMADA: {updated.service or 'Servicio'} el "
                     f"{_format_date(updated.date_time)} a las "
                     f"{_format_time(updated.date_time)} con "
                     f"{updated.therapist or 'terapeuta'}"
