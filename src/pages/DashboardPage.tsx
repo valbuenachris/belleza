@@ -323,10 +323,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       color: 'violet',
     },
     {
-      label: 'Ingresos de Hoy',
+      label: 'Ingresos Hoy',
       value: fmtMoney(stats.total_ingresos_hoy),
       icon: <DollarSign size={22} />,
       color: 'amber',
+      sub: `Mes: ${fmtMoney(stats.total_ingresos_mes)}`,
     },
   ] : [];
 
@@ -518,7 +519,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               <p className="text-2xl font-bold text-stone-800">{card.value}</p>
               <div className="flex items-center gap-1 mt-2 text-xs font-medium text-stone-400">
                 <Activity size={14} />
-                En tiempo real
+                {card.sub || 'En tiempo real'}
               </div>
             </div>
           ))}

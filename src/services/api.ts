@@ -769,14 +769,17 @@ export const api = {
 
     const citasSemana = [0, 0, 0, 0, 0, 0, 0];
     const ingresosMes = Array(12).fill(0) as number[];
+    const ahora = new Date();
+    const hoyLocal = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
 
     for (const apt of apptsRes.appointments || []) {
       if (apt.estado === 'cancelled') continue;
       const dt = apt.date_time ? new Date(apt.date_time) : null;
+      const ingresosApt = apt.total_pagado ?? apt.monto_total ?? apt.precio ?? 0;
       if (dt && !isNaN(dt.getTime())) {
         const dow = (dt.getDay() + 6) % 7; // 0 = Lunes
         citasSemana[dow] += 1;
-        ingresosMes[dt.getMonth()] += apt.precio ?? 0;
+        ingresosMes[dt.getMonth()] += ingresosApt;
       }
     }
 

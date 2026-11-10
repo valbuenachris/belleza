@@ -462,7 +462,19 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
     Returns:
         dict con total_citas_hoy, pendientes, confirmadas, ingresos_hoy
     """
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    # 'today' en la zona horaria del tenant (las citas se guardan naive en hora
+    # local del negocio). Sin esto, "hoy" en UTC no coincide con las citas del día.
+    from ..models.tenant import Tenant as TenantModel
+    from zoneinfo import ZoneInfo
+
+    tenant_row = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
+    tz_name = (tenant_row.timezone if tenant_row else None) or "America/Bogota"
+    try:
+        now_local = datetime.now(ZoneInfo(tz_name))
+    except Exception:
+        now_local = datetime.utcnow()
+
+    today = now_local.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
     tomorrow = today + timedelta(days=1)
 
     citas_hoy = db.query(Appointment).filter(
@@ -479,10 +491,10 @@ def get_appointment_summary(db: Session, tenant_id: str) -> dict:
     for apt in citas_hoy:
         if apt.estado == "cancelled":
             continue
-        precio = apt.precio
-        if precio is None and apt.service_rel and apt.service_rel.precio is not None:
-            precio = apt.service_rel.precio
-        total_ingresos_hoy += float(precio or 0)
+        usar = apt.total_pagado or apt.monto_total or apt.precio
+        if usar is None and apt.service_rel and apt.service_rel.precio is not None:
+            usar = apt.service_rel.precio
+        total_ingresos_hoy += float(usar or 0)
 
     pendientes = db.query(func.count(Appointment.id)).filter(
         Appointment.tenant_id == tenant_id,
@@ -558,10 +570,10 @@ def get_financial_report(
     )
 
     def _effective_precio(a: Appointment, default: float = 0.0) -> float:
-        precio = a.precio
-        if precio is None and a.service_rel and a.service_rel.precio is not None:
-            precio = a.service_rel.precio
-        return float(precio or default)
+        usar = a.total_pagado or a.monto_total or a.precio
+        if usar is None and a.service_rel and a.service_rel.precio is not None:
+            usar = a.service_rel.precio
+        return float(usar or default)
 
     efectivas = [a for a in citas if a.estado != "cancelled"]
 
