@@ -1092,6 +1092,7 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
     transferencia: 'Transferencia',
     nequi: 'Nequi',
     daviplata: 'Daviplata',
+    credito: 'Crédito',
     otro: 'Otro',
   };
 
@@ -1177,6 +1178,7 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
               <option value="transferencia">Transferencia</option>
               <option value="nequi">Nequi</option>
               <option value="daviplata">Daviplata</option>
+              <option value="credito">Crédito</option>
             </select>
           </div>
 

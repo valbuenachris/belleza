@@ -115,7 +115,7 @@ class AppointmentItemResponse(BaseModel):
 
 class AppointmentPaymentCreate(BaseModel):
     monto: Decimal = Field(..., ge=0)
-    metodo_pago: str = Field("efectivo", description="efectivo|tarjeta|transferencia|nequi|daviplata|otro")
+    metodo_pago: str = Field("efectivo", description="efectivo|tarjeta|transferencia|nequi|daviplata|credito|otro")
     descuento: Optional[Decimal] = Field(Decimal("0.00"), ge=0)
     observaciones: Optional[str] = None
 

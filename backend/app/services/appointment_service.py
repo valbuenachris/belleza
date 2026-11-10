@@ -873,13 +873,24 @@ def _recalc_monto(db: Session, appointment: Appointment):
     )
     total_pagado = Decimal(str(pagado_sum or 0))
 
+    has_payments = (
+        db.query(AppointmentPayment)
+        .filter(
+            AppointmentPayment.appointment_id == appointment.id,
+            AppointmentPayment.tenant_id == appointment.tenant_id,
+            AppointmentPayment.is_active == True,
+            AppointmentPayment.deleted_at == None,
+        )
+        .first()
+    ) is not None
+
     appointment.monto_total = monto_total
     appointment.descuento_total = descuento_total
     appointment.total_pagado = total_pagado
 
-    if monto_total is not None and total_pagado >= monto_total:
+    if monto_total is not None and monto_total > Decimal("0.00") and total_pagado >= monto_total:
         appointment.estado_pago = "paid"
-    elif total_pagado > 0:
+    elif total_pagado > Decimal("0.00") or has_payments:
         appointment.estado_pago = "partial"
     else:
         appointment.estado_pago = "unpaid"
@@ -911,10 +922,6 @@ def register_payment(
     ).first()
     if not appointment:
         raise ValueError("Cita no encontrada")
-
-    # Si el monto es 0 y no tiene pagos, marcar como crédito (partial)
-    if monto == Decimal(0) and appointment.total_pagado == Decimal(0):
-        appointment.estado_pago = "partial"
 
     payment = AppointmentPayment(
         id=generate_uuid(),

@@ -105,7 +105,7 @@ class AppointmentPayment(Base, TenantBaseModel):
         String(30),
         nullable=False,
         default="efectivo",
-        comment="Método: efectivo, tarjeta, transferencia, nequi, daviplata, otro",
+        comment="Método: efectivo, tarjeta, transferencia, nequi, daviplata, credito, otro",
     )
     descuento: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
