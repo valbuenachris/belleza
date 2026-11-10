@@ -559,7 +559,34 @@ class WhatsAppAgentService:
                 )
                 if resp.get("success") is True:
                     return resp.get("message")
-                # Si falla (sin recordatorio), seguir al listado normal
+                # Si falla (sin recordatorio), buscar si solo hay UNA cita pending
+                only_pending = (
+                    db.query(Appointment)
+                    .filter(
+                        Appointment.tenant_id == tenant_id,
+                        Appointment.patient_id == conversation.patient_id,
+                        Appointment.deleted_at == None,
+                        Appointment.estado == "pending",
+                    )
+                    .all()
+                )
+                if len(only_pending) == 1:
+                    try:
+                        from ..schemas.appointment import AppointmentUpdate
+                        upd = appointment_service.update_appointment(
+                            db, tenant_id, str(only_pending[0].id),
+                            AppointmentUpdate(estado="confirmed")
+                        )
+                        if upd:
+                            return (
+                                f"\u2705 Cita CONFIRMADA: {upd.service or 'Servicio'} el "
+                                f"{_format_date(upd.date_time)} a las "
+                                f"{_format_time(upd.date_time)} con "
+                                f"{upd.therapist or 'terapeuta'}"
+                            )
+                    except ValueError as exc:
+                        return f"No se pudo confirmar: {str(exc)}"
+                # Más de una pending → listar
             try:
                 import re as re_cf
                 apts = json.loads(self._tool_list_appointments(db, tenant_id, str(conversation.patient_id), conversation))
@@ -1662,15 +1689,79 @@ f"\U0001F495 ¡Te esperamos!{extra}"
             db.query(WhatsAppMessage)
             .filter(
                 WhatsAppMessage.tenant_id == tenant_id,
-                WhatsAppMessage.conversation_id == conversation.id,
                 WhatsAppMessage.role == "assistant",
-                WhatsAppMessage.message_id.startswith("reminder_"),
+                WhatsAppMessage.message_id.like("reminder_%"),
                 WhatsAppMessage.deleted_at == None,
+            )
+            .filter(
+                WhatsAppMessage.conversation_id == conversation.id,
             )
             .order_by(WhatsAppMessage.created_at.desc())
             .first()
         )
         if not last_reminder:
+            # Fallback: buscar el último mensaje del bot que contenta "CONFIRMO"
+            # y extraer servicio + hora del contenido
+            last_bot = (
+                db.query(WhatsAppMessage)
+                .filter(
+                    WhatsAppMessage.tenant_id == tenant_id,
+                    WhatsAppMessage.conversation_id == conversation.id,
+                    WhatsAppMessage.role == "assistant",
+                    WhatsAppMessage.deleted_at == None,
+                )
+                .order_by(WhatsAppMessage.created_at.desc())
+                .first()
+            )
+            if last_bot and last_bot.content:
+                import re as re_rx
+                c = last_bot.content
+                m_svc = re_rx.search(r"Servicio:\s*(.+)", c)
+                m_time = re_rx.search(r"Hora:\s*(\d{2}:\d{2})", c)
+                if m_svc and m_time:
+                    svc_name = m_svc.group(1).strip()
+                    hora_txt = m_time.group(1).strip()
+                    from ..models.service import Service as ServiceModel
+                    svc_row = (
+                        db.query(ServiceModel)
+                        .filter(
+                            ServiceModel.tenant_id == tenant_id,
+                            ServiceModel.nombre.ilike(f"%{svc_name}%"),
+                            ServiceModel.deleted_at == None,
+                        )
+                        .first()
+                    )
+                    if svc_row:
+                        apt = (
+                            db.query(Appointment)
+                            .filter(
+                                Appointment.tenant_id == tenant_id,
+                                Appointment.patient_id == pid,
+                                Appointment.deleted_at == None,
+                                Appointment.estado == "pending",
+                                Appointment.service_id == str(svc_row.id),
+                                Appointment.hora_inicio == hora_txt,
+                            )
+                            .first()
+                        )
+                        if apt:
+                            try:
+                                from ..schemas.appointment import AppointmentUpdate
+                                updated = appointment_service.update_appointment(
+                                    db, tenant_id, str(apt.id), AppointmentUpdate(estado="confirmed")
+                                )
+                                if updated:
+                                    return json.dumps({
+                                        "success": True,
+                                        "message": (
+                                            f"\u2705 Cita CONFIRMADA: {updated.service or 'Servicio'} el "
+                                            f"{_format_date(updated.date_time)} a las "
+                                            f"{_format_time(updated.date_time)} con "
+                                            f"{updated.therapist or 'terapeuta'}"
+                                        ),
+                                    }, ensure_ascii=False)
+                            except ValueError:
+                                pass
             return json.dumps({
                 "success": False,
                 "message": "No tienes recordatorios de confirmación pendientes.",
