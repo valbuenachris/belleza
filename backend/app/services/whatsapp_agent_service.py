@@ -99,6 +99,19 @@ def _now_context(db: Session, tenant_id: str) -> str:
         )
 
 
+_ESTADO_LABEL = {
+    "pending": "pendiente",
+    "confirmed": "confirmada",
+    "cancelled": "cancelada",
+    "completed": "completada",
+}
+
+
+def _format_status(estado: str) -> str:
+    """Convierte el estado técnico (inglés) al español para mostrar al cliente."""
+    return _ESTADO_LABEL.get(estado, estado)
+
+
 FALLBACK_REPLY = (
     "Lo siento, tuve un problema procesando tu solicitud. "
     "Por favor intenta de nuevo o contacta directamente con nuestro personal "
@@ -1693,7 +1706,7 @@ f"\U0001F495 ¡Te esperamos!{extra}"
                 "time": a.hora_inicio or "",
                 "service": a.service or "",
                 "therapist": a.therapist or "",
-                "status": a.estado,
+                "status": _format_status(a.estado),
             }
             for a in appointments
         ]

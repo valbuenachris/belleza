@@ -12,6 +12,13 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
 import { TenantStats, Appointment, Page, ScanLoyaltyResult } from '../types';
+
+const statusLabels: Record<string, string> = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmada',
+  completed: 'Completada',
+  cancelled: 'Cancelada',
+};
 import { getTenantTimezone, fmtLongDate } from '../utils/dateTime';
 import {
   Users, Calendar, DollarSign, UserCheck, TrendingUp,
@@ -726,7 +733,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   <p className="text-sm font-medium text-stone-700">{apt.patient} — {apt.service}</p>
                   <p className="text-xs text-stone-500 truncate">{apt.hora_inicio || apt.time || '—'} h · {apt.therapist}</p>
                 </div>
-                <span className="text-xs text-stone-400 whitespace-nowrap capitalize">{apt.estado}</span>
+                <span className="text-xs text-stone-400 whitespace-nowrap capitalize">{statusLabels[apt.estado] || apt.estado}</span>
               </div>
             ))}
           </div>

@@ -350,7 +350,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                                 ? 'bg-emerald-50 text-emerald-700'
                                 : 'bg-amber-50 text-amber-700'
                             }`}>
-                              {a.estado}
+                              {a.estado === 'pending' ? 'Pendiente' : a.estado === 'confirmed' ? 'Confirmada' : a.estado === 'completed' ? 'Completada' : a.estado === 'cancelled' ? 'Cancelada' : a.estado}
                             </span>
                           </button>
                         ))}
