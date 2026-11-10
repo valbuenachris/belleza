@@ -385,7 +385,7 @@ def update_appointment(
             if appointment.estado_pago == "unpaid":
                 raise ValueError(
                     "No se puede completar la cita sin pagos registrados. "
-                    "Registra un pago primero o usa 'Estados de pago: crédito'."
+                    "Registra un pago de $0 (crédito) primero."
                 )
 
     # Nueva fecha/hora: solo se reconstruye si el payload trae date_time o fecha+time.
@@ -911,6 +911,10 @@ def register_payment(
     ).first()
     if not appointment:
         raise ValueError("Cita no encontrada")
+
+    # Si el monto es 0 y no tiene pagos, marcar como crédito (partial)
+    if monto == Decimal(0) and appointment.total_pagado == Decimal(0):
+        appointment.estado_pago = "partial"
 
     payment = AppointmentPayment(
         id=generate_uuid(),

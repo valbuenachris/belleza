@@ -1060,8 +1060,8 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (monto <= 0) {
-      setError('El monto debe ser mayor a 0');
+    if (monto < 0) {
+      setError('El monto no puede ser negativo');
       return;
     }
     setLoading(true);
@@ -1158,7 +1158,7 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Monto a pagar *</label>
             <input
-              type="number" required min={1} step={1}
+              type="number" required min={0} step={1}
               value={monto}
               onChange={(e) => setMonto(Number(e.target.value))}
               className={inputClass}
@@ -1202,6 +1202,12 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
             />
           </div>
 
+          {monto === 0 && (
+            <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
+              Este pago se registrará como crédito ($0). La cita se podrá marcar como completada.
+            </div>
+          )}
+
           {monto > 0 && monto < saldoInicial && (
             <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
               Queda un saldo pendiente de ${(saldoInicial - monto).toLocaleString('es-CO')} después de este pago (crédito).
@@ -1222,7 +1228,7 @@ function PaymentModal({ appointment, onClose, onPaid, timezone }: {
               Cancelar
             </button>
             <button
-              type="submit" disabled={loading || monto <= 0}
+              type="submit" disabled={loading || monto < 0}
               className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 transition-all"
             >
               {loading ? 'Registrando...' : 'Registrar Pago'}
